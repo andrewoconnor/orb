@@ -36,10 +36,6 @@ module Health
              full_hp : Int32?,
              max_hp : Int32?
 
-    def initialize(**attributes)
-      super **attributes
-    end
-
     def hp
       @hp ||= 100
     end
@@ -59,16 +55,22 @@ module Position
     property x : Int32?,
              y : Int32?
 
-    def initialize(attributes)
-      super **attributes
-    end
-
     def x
       @x ||= 0
     end
 
     def y
       @y ||= 0
+    end
+  end
+end
+
+module Name
+  macro included
+    property name : String?
+
+    def name
+      @name ||= ""
     end
   end
 end
@@ -83,16 +85,16 @@ class Entity
   end
 end
 
-class Foo < Entity
+class Player < Entity
+  include Name
   include Health
   include Position
 end
 
-f = Foo.new(**{hp: 80, max_hp: 100, x: 0, y: 0})
-p f
-f.x = 100
-p f
-
+p1 = Player.new(**{hp: 80, full_hp: 100, max_hp: 100})
+p p1
+p1.x = 100
+p p1.name
 
 # game = Game.new
 # game.run
