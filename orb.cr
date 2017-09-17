@@ -59,8 +59,16 @@ module Position
     property x : Int32?,
              y : Int32?
 
-    def initialize(opts)
+    def initialize(attributes)
       super **attributes
+    end
+
+    def x
+      @x ||= 0
+    end
+
+    def y
+      @y ||= 0
     end
   end
 end
@@ -81,6 +89,8 @@ class Foo < Entity
 end
 
 f = Foo.new(**{hp: 80, max_hp: 100, x: 0, y: 0})
+p f
+f.x = 100
 p f
 
 
