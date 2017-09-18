@@ -53,9 +53,8 @@ end
 module Position
   macro included
     def initialize(**attributes)
-      if attributes[:position]
-        self.position = attributes[:position]
-      end
+      super(**attributes)
+      self.position = attributes[:position]? || {0.0, 0.0}
     end
   end
 end
@@ -64,9 +63,7 @@ module Rotation
   macro included
     def initialize(**attributes)
       previous_def(**attributes)
-      if attributes[:rotation]
-        self.rotation = attributes[:rotation]
-      end
+      self.rotation = attributes[:rotation]? || 0
     end
   end
 end
@@ -103,16 +100,16 @@ p1 = Player.new(
     hp: 80,
     full_hp: 100,
     max_hp: 100,
-    position: SF.vector2f(100.0, 100.0),
-    rotation: 45.0
+    rotation: 45,
+    position: {200, 200}
   }
 )
 
-p1.move(SF.vector2(0.0, 0.5))
+p p1.hp
+p1.move({0.0, 0.5})
 p1.rotate(10.0)
 p p1.position
 p p1.rotation
 
 # game = Game.new
 # game.run
-# 
