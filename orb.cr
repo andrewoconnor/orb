@@ -52,15 +52,21 @@ end
 
 module Position
   macro included
-    property x : Int32?,
-             y : Int32?
-
-    def x
-      @x ||= 0
+    def initialize(**attributes)
+      if attributes[:position]
+        self.position = attributes[:position]
+      end
     end
+  end
+end
 
-    def y
-      @y ||= 0
+module Rotation
+  macro included
+    def initialize(**attributes)
+      previous_def(**attributes)
+      if attributes[:rotation]
+        self.rotation = attributes[:rotation]
+      end
     end
   end
 end
@@ -75,7 +81,7 @@ module Name
   end
 end
 
-class Entity
+class Entity < SF::Transformable
   def initialize(**attributes)
     {% for var in @type.instance_vars %}
       if arg = attributes[:{{var.name.id}}]?
@@ -89,12 +95,23 @@ class Player < Entity
   include Name
   include Health
   include Position
+  include Rotation
 end
 
-p1 = Player.new(**{hp: 80, full_hp: 100, max_hp: 100})
-p p1
-p1.x = 100
-p p1.name
+p1 = Player.new(
+  **{
+    hp: 80,
+    full_hp: 100,
+    max_hp: 100,
+    position: SF.vector2f(100.0, 100.0),
+    rotation: 45.0
+  }
+)
+
+p1.move(SF.vector2(0.0, 0.5))
+p1.rotate(10.0)
+p p1.position
+p p1.rotation
 
 # game = Game.new
 # game.run
