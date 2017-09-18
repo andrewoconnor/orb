@@ -62,18 +62,28 @@ end
 
 module Position
   macro included
-    def initialize(**attributes)
-      super(**attributes)
-      self.position = attributes[:position]? || {0.0, 0.0}
+    property position : SF::Vector2f?
+
+    def position=(position)
+      super(position)
+    end
+
+    def position
+      super
     end
   end
 end
 
 module Rotation
   macro included
-    def initialize(**attributes)
-      previous_def(**attributes)
-      self.rotation = attributes[:rotation]? || 0.0
+    property rotation : Float32
+    
+    def rotation=(angle)
+      super(angle)
+    end
+
+    def rotation
+      super
     end
   end
 end
