@@ -30,16 +30,6 @@ class Game
   end
 end
 
-module Name
-  macro included
-    property name : String?
-
-    def name
-      @name ||= ""
-    end
-  end
-end
-
 module Health
   macro included
     property hp : Int32?,
@@ -62,10 +52,10 @@ end
 
 module Position
   macro included
-    property position : SF::Vector2f?
+    property position : SF::Vector2f
 
     def position=(position)
-      super(position)
+      super
     end
 
     def position
@@ -79,7 +69,7 @@ module Rotation
     property rotation : Float32
     
     def rotation=(angle)
-      super(angle)
+      super
     end
 
     def rotation
@@ -103,17 +93,24 @@ module Acceleration
 end
 
 class Entity < SF::Transformable
+  property id : Int32?,
+           name : String?
+
   def initialize(**attributes)
+    super
     {% for var in @type.instance_vars %}
       if arg = attributes[:{{var.name.id}}]?
         self.{{var.name.id}} = arg
       end
     {% end %}
   end
+
+  def name
+    @name ||= "#{self.class}#{id}"
+  end
 end
 
 class Player < Entity
-  include Name
   include Health
   include Position
   include Rotation
@@ -123,20 +120,27 @@ end
 p1 = Player.new(
   **{
     hp: 80,
-    full_hp: 100,
-    max_hp: 100,
     rotation: 45.0,
     position: {200.0, 200.0},
     acceleration: {1.0, 2.0}
   }
 )
 
+p p1.name
 p p1.hp
 p1.move({0.0, 0.5})
 p1.rotate(10.0)
 p p1.position
 p p1.rotation
 p p1.acceleration
+
+p2 = Player.new
+
+p p2.name
+p p2.hp
+p p2.position
+p p2.rotation
+p p2.acceleration
 
 # game = Game.new
 # game.run
