@@ -73,7 +73,7 @@ module Rotation
   macro included
     def initialize(**attributes)
       previous_def(**attributes)
-      self.rotation = attributes[:rotation]? || 0
+      self.rotation = attributes[:rotation]? || 0.0
     end
   end
 end
