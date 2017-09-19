@@ -78,6 +78,20 @@ module Rotation
   end
 end
 
+module Velocity
+  macro included
+    property velocity : SF::Vector2f?
+
+    def velocity
+      @velocity ||= SF.vector2f(0.0, 0.0)
+    end
+
+    def velocity=(velocity : Tuple(Number, Number))
+      @velocity = SF.vector2f(*velocity)
+    end
+  end
+end
+
 module Acceleration
   macro included
     property acceleration : SF::Vector2f?
@@ -86,8 +100,8 @@ module Acceleration
       @acceleration ||= SF.vector2f(0.0, 0.0)
     end
 
-    def acceleration=(a : Tuple(Number, Number))
-      @acceleration = SF.vector2f(*a)
+    def acceleration=(acceleration : Tuple(Number, Number))
+      @acceleration = SF.vector2f(*acceleration)
     end
   end
 end
@@ -114,7 +128,22 @@ class Player < Entity
   include Health
   include Position
   include Rotation
+  include Velocity
   include Acceleration
+end
+
+class Movement
+  property entity
+
+  def initialize(entity : Player)
+    @entity = entity
+  end
+
+  def update(dt)
+    last_velocity = entity.velocity
+    entity.velocity += entity.acceleration * dt
+    entity.move((last_velocity + entity.velocity) * 0.5 * dt)
+  end
 end
 
 p1 = Player.new(
@@ -122,25 +151,32 @@ p1 = Player.new(
     hp: 80,
     rotation: 45.0,
     position: {200.0, 200.0},
-    acceleration: {1.0, 2.0}
+    acceleration: {1.0, 1.0}
   }
 )
 
 p p1.name
 p p1.hp
-p1.move({0.0, 0.5})
 p1.rotate(10.0)
 p p1.position
 p p1.rotation
+p p1.velocity
 p p1.acceleration
 
-p2 = Player.new
+puts "applying movement"
+puts p1
+m = Movement.new(p1)
+m.update(1)
 
-p p2.name
-p p2.hp
-p p2.position
-p p2.rotation
-p p2.acceleration
+p p1.position
+p p1.velocity
+
+# p2 = Player.new
+# p p2.name
+# p p2.hp
+# p p2.position
+# p p2.rotation
+# p p2.acceleration
 
 # game = Game.new
 # game.run
