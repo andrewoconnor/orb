@@ -132,17 +132,22 @@ class Player < Entity
   include Acceleration
 end
 
-class Movement
-  property entity
+class Movement(EntityT)
+  getter entity
 
-  def initialize(entity : Player)
+  def initialize(entity : EntityT)
     @entity = entity
   end
 
   def update(dt)
+    return unless can_move?
     last_velocity = entity.velocity
     entity.velocity += entity.acceleration * dt
     entity.move((last_velocity + entity.velocity) * 0.5 * dt)
+  end
+
+  private def can_move?
+    entity.responds_to?(:velocity) && entity.responds_to?(:acceleration)
   end
 end
 
