@@ -121,7 +121,20 @@ end
 
 class Movement(EntityT) < Behavior(EntityT)
   def update(dt)
-    puts "moving"
+    return unless can_move?
+    last_velocity = entity.velocity
+    entity.velocity += entity.acceleration * dt
+    entity.move((last_velocity + entity.velocity) * 0.5 * dt)
+  end
+
+  private def can_move?
+    entity.responds_to?(:velocity) && entity.responds_to?(:acceleration)
+  end
+end
+
+class Gravity(EntityT) < Behavior(EntityT)
+  def update(dt)
+    entity.acceleration += {0.0, -9.8} if entity.position.y > 0
   end
 end
 
@@ -143,44 +156,22 @@ class Entity < SF::Transformable
   end
 end
 
-module Behaviors(BehaviorT)
+module Behaviors(*BehaviorT)
   macro included
-    property behaviors : Array(BehaviorT(self))?
 
-    def behaviors
-      @behaviors ||= [] of BehaviorT(self)
+    macro behaviors(args, dt)
+      \{% for x in args.type_vars %}
+        \{% for y in x.resolve.instance.type_vars %}
+          \{{y.name.stringify.split('(').first.id}}.new(self).update(dt)
+        \{% end %}
+      \{% end %}
     end
 
     def update(dt)
-      behaviors.map { |b| b.update(dt) }
+      behaviors(\{{Behaviors.instance}}, dt)
     end
   end
 end
-
-# module Movement
-#   class Behavior(EntityT)
-#     getter entity
-
-#     def initialize(entity : EntityT)
-#       @entity = entity
-#     end
-
-#     def update(dt)
-#       return unless can_move?
-#       last_velocity = entity.velocity
-#       entity.velocity += entity.acceleration * dt
-#       entity.move((last_velocity + entity.velocity) * 0.5 * dt)
-#     end
-
-#     private def can_move?
-#       entity.responds_to?(:velocity) && entity.responds_to?(:acceleration)
-#     end
-#   end
-
-#   macro included
-#     self.behaviors << Movement::Behavior.new(self)
-#   end
-# end
 
 class Player < Entity
   include Health
@@ -188,28 +179,8 @@ class Player < Entity
   include Rotation
   include Velocity
   include Acceleration
-  include Behaviors(Movement)
-  # include Movement
+  include Behaviors(Gravity, Movement)
 end
-
-# class Movement(EntityT)
-#   getter entity
-
-#   def initialize(entity : EntityT)
-#     @entity = entity
-#   end
-
-#   def update(dt)
-#     return unless can_move?
-#     last_velocity = entity.velocity
-#     entity.velocity += entity.acceleration * dt
-#     entity.move((last_velocity + entity.velocity) * 0.5 * dt)
-#   end
-
-#   private def can_move?
-#     entity.responds_to?(:velocity) && entity.responds_to?(:acceleration)
-#   end
-# end
 
 p1 = Player.new(
   **{
@@ -228,14 +199,7 @@ p p1.rotation
 p p1.velocity
 p p1.acceleration
 
-puts "applying movement"
 puts p1
-# m = Movement.new(p1)
-# p1.update(1)
-movement = Movement.new(p1)
-p p1.behaviors.inspect
-p1.behaviors << movement
-p p1.behaviors.inspect
 p1.update(1)
 
 p p1.position
