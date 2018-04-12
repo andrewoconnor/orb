@@ -158,17 +158,24 @@ end
 
 module Behaviors(*BehaviorT)
   macro included
+    property behaviors : BehaviorT?
 
-    macro behaviors(args, dt)
+    def behaviors
+      @behaviors ||= define_behaviors(\{{Behaviors.instance}})
+    end
+
+    macro define_behaviors(args)
+      res = Tuple.new
       \{% for x in args.type_vars %}
         \{% for y in x.resolve.instance.type_vars %}
-          \{{y.name.stringify.split('(').first.id}}.new(self).update(dt)
+          res += Tuple.new \{{y.name.stringify.split('(').first.id}}.new(self)
         \{% end %}
       \{% end %}
+      res
     end
 
     def update(dt)
-      behaviors(\{{Behaviors.instance}}, dt)
+      behaviors.each { |b| b.update(dt) }
     end
   end
 end
@@ -200,6 +207,11 @@ p p1.velocity
 p p1.acceleration
 
 puts p1
+p1.update(1)
+
+p p1.position
+p p1.velocity
+
 p1.update(1)
 
 p p1.position
