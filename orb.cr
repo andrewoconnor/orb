@@ -1,36 +1,5 @@
 require "crsfml"
 
-class Game
-  def mode
-    @mode ||= SF::VideoMode.new(1920, 1080)
-  end
-
-  def window
-    @window ||= SF::RenderWindow
-      .new(mode, "orb")
-      .tap { |w| w.vertical_sync_enabled = true }
-      .as(SF::RenderWindow)
-  end
-
-  def process_events
-    while event = window.poll_event
-      case event
-      when SF::Event::Closed
-        window.close
-      end
-    end
-  end
-
-  def run
-    while window.open?
-      process_events
-
-      window.clear
-      window.display
-    end
-  end
-end
-
 module Health
   macro included
     property hp : Int32?,
@@ -107,16 +76,14 @@ module Acceleration
   end
 end
 
-class Behavior(EntityT)
+abstract class Behavior(EntityT)
   getter entity
 
   def initialize(entity : EntityT)
     @entity = entity
   end
   
-  def update(dt)
-    raise NotImplementedError
-  end
+  abstract def update(dt)
 end
 
 class Movement(EntityT) < Behavior(EntityT)
@@ -125,6 +92,7 @@ class Movement(EntityT) < Behavior(EntityT)
     last_velocity = entity.velocity
     entity.velocity += entity.acceleration * dt
     entity.move((last_velocity + entity.velocity) * 0.5 * dt)
+    entity.circle.position = entity.position
   end
 
   private def can_move?
@@ -133,8 +101,51 @@ class Movement(EntityT) < Behavior(EntityT)
 end
 
 class Gravity(EntityT) < Behavior(EntityT)
+
+  property max_height : Float32,
+           free_fall : Bool,
+           max_velocity : Float32
+
+  def initialize(entity : EntityT)
+    super
+    @max_height = height
+    @max_velocity = Math.sqrt(2 * max_height * gravity)
+    @free_fall = true
+  end
+
+  def stop_height
+    @stop_height ||= 0.1
+  end
+
+  def height
+    (entity.position.y + entity.circle.radius) * -1 + 1080
+  end
+
+  def gravity
+    @gravity ||= 1000.0
+  end
+
+  def rho
+    @rho ||= 0.75 # coefficient of restitution
+  end
+
   def update(dt)
-    entity.acceleration += {0.0, -9.8} if entity.position.y > 0
+    if max_height < stop_height
+      entity.velocity = {0.0_f32, 0.0_f32}
+      return
+    end
+    if free_fall
+      if height < entity.circle.radius
+        @free_fall = false
+      else
+        entity.velocity = {0.0_f32, entity.velocity.y + gravity * dt}
+      end
+    else
+      @max_velocity *= rho
+      entity.velocity = {0.0f32, -1 * max_velocity}
+      @free_fall = true
+    end
+    @max_height = (max_velocity * max_velocity / (gravity * 2)).as(Float32)
   end
 end
 
@@ -158,20 +169,20 @@ end
 
 module Behaviors(*BehaviorT)
   macro included
-    property behaviors : BehaviorT?
+    property behaviors : Array(Behavior(self))?
 
     def behaviors
-      @behaviors ||= define_behaviors(\{{Behaviors.instance}})
+      @behaviors ||= init_behaviors(\{{Behaviors.instance}})
     end
 
-    macro define_behaviors(args)
+    macro init_behaviors(args)
       res = Tuple.new
       \{% for x in args.type_vars %}
         \{% for y in x.resolve.instance.type_vars %}
           res += Tuple.new \{{y.name.stringify.split('(').first.id}}.new(self)
         \{% end %}
       \{% end %}
-      res
+      res.to_a
     end
 
     def update(dt)
@@ -181,48 +192,100 @@ module Behaviors(*BehaviorT)
 end
 
 class Player < Entity
+  include SF::Drawable
   include Health
   include Position
   include Rotation
   include Velocity
   include Acceleration
   include Behaviors(Gravity, Movement)
+
+  property circle : SF::CircleShape?
+
+  def circle
+    @circle ||= SF::CircleShape.new.tap do |c|
+      c.position = position
+      c.radius = 50
+      c.fill_color = SF::Color::White
+    end.as(SF::CircleShape)
+  end
+
+  def draw(target : SF::RenderTarget, states : SF::RenderStates)
+    target.draw(circle, states)
+  end
 end
 
-p1 = Player.new(
-  **{
-    hp: 80,
-    rotation: 45.0,
-    position: {200.0, 200.0},
-    acceleration: {1.0, 1.0}
-  }
-)
+class Game
+  property t : Float32,
+           accumulator : Float32
 
-p p1.name
-p p1.hp
-p1.rotate(10.0)
-p p1.position
-p p1.rotation
-p p1.velocity
-p p1.acceleration
+  def initialize
+    @t = 0.0_f32
+    @accumulator = 0.0_f32
+  end
 
-puts p1
-p1.update(1)
+  def mode
+    @mode ||= SF::VideoMode.new(1920, 1080)
+  end
 
-p p1.position
-p p1.velocity
+  def window
+    @window ||= SF::RenderWindow
+      .new(mode, "orb")
+      .tap { |w| w.vertical_sync_enabled = true }
+      .as(SF::RenderWindow)
+  end
 
-p1.update(1)
+  def clock
+    @clock ||= SF::Clock.new
+  end
 
-p p1.position
-p p1.velocity
+  def dt
+    @dt ||= 0.01
+  end
 
-# p2 = Player.new
-# p p2.name
-# p p2.hp
-# p p2.position
-# p p2.rotation
-# p p2.acceleration
+  def frame_time
+    clock.restart.as_seconds
+  end
 
-# game = Game.new
-# game.run
+  def player
+    @player ||= Player.new(
+      **{
+        hp: 80,
+        rotation: 45.0,
+        position: {200.0, 200.0},
+        acceleration: {0.0, 0.0}
+      }
+    )
+  end
+
+  def process_events
+    while event = window.poll_event
+      case event
+      when SF::Event::Closed
+        window.close
+      end
+    end
+  end
+
+  def run
+    while window.open?
+      process_events
+
+      @accumulator += frame_time
+
+      while accumulator >= dt
+        player.update(dt)
+
+        @accumulator -= dt;
+        @t += dt;
+      end
+
+      window.clear
+      window.draw(player)
+      window.display
+    end
+  end
+end
+
+game = Game.new
+game.run
