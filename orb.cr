@@ -87,11 +87,24 @@ abstract class Behavior(EntityT)
 end
 
 class Movement(EntityT) < Behavior(EntityT)
+  # def update(dt)
+  #   return unless can_move?
+  #   last_velocity = entity.velocity
+  #   entity.velocity += entity.acceleration * dt
+  #   entity.move((last_velocity + entity.velocity) * 0.5 * dt)
+  #   entity.circle.position = entity.position
+  # end
+
   def update(dt)
     return unless can_move?
     last_velocity = entity.velocity
     entity.velocity += entity.acceleration * dt
+    old_position = entity.position
     entity.move((last_velocity + entity.velocity) * 0.5 * dt)
+    if (entity.position.y + entity.circle.radius) * -1 + 1080 < entity.circle.radius
+      entity.behaviors.each { |b| b.free_fall = false if b.responds_to?(:free_fall) }
+      entity.position = {old_position.x, entity.circle.radius * -2 + 1080}
+    end
     entity.circle.position = entity.position
   end
 
@@ -129,24 +142,44 @@ class Gravity(EntityT) < Behavior(EntityT)
     @rho ||= 0.75 # coefficient of restitution
   end
 
+  # TODO: take the average of entity acceleration and gravity
   def update(dt)
     if max_height < stop_height
-      entity.velocity = {0.0_f32, 0.0_f32}
+      entity.velocity = {entity.velocity.x, 0.0_f32}
       return
     end
     if free_fall
       if height < entity.circle.radius
         @free_fall = false
       else
-        entity.velocity = {0.0_f32, entity.velocity.y + gravity * dt}
+        # entity.velocity = {entity.velocity.x, entity.velocity.y + gravity * dt}
+        entity.acceleration = {entity.acceleration.x, (entity.acceleration.y + gravity) * 0.5}
       end
     else
       @max_velocity *= rho
-      entity.velocity = {0.0f32, -1 * max_velocity}
+      entity.velocity = {entity.velocity.x, -1 * max_velocity}
       @free_fall = true
     end
     @max_height = (max_velocity * max_velocity / (gravity * 2)).as(Float32)
   end
+  # def update(dt)
+  #   if max_height < stop_height
+  #     entity.velocity = {entity.velocity.x, 0.0_f32}
+  #     return
+  #   end
+  #   if free_fall
+  #     if height < entity.circle.radius
+  #       @free_fall = false
+  #     else
+  #       entity.velocity = {entity.velocity.x, entity.velocity.y + gravity * dt}
+  #     end
+  #   else
+  #     @max_velocity *= rho
+  #     entity.velocity = {entity.velocity.x, -1 * max_velocity}
+  #     @free_fall = true
+  #   end
+  #   @max_height = (max_velocity * max_velocity / (gravity * 2)).as(Float32)
+  # end
 end
 
 class Entity < SF::Transformable
@@ -172,17 +205,15 @@ module Behaviors(*BehaviorT)
     property behaviors : Array(Behavior(self))?
 
     def behaviors
-      @behaviors ||= init_behaviors(\{{Behaviors.instance}})
+      @behaviors ||= init_behaviors
     end
 
-    macro init_behaviors(args)
-      res = Tuple.new
-      \{% for x in args.type_vars %}
-        \{% for y in x.resolve.instance.type_vars %}
-          res += Tuple.new \{{y.name.stringify.split('(').first.id}}.new(self)
+    macro init_behaviors
+      ([] of Behavior(self)).tap do |b|
+        \{% for klass in BehaviorT %}
+           b << \{{klass.name.split('(').first.id}}.new(self)
         \{% end %}
-      \{% end %}
-      res.to_a
+      end
     end
 
     def update(dt)
@@ -253,6 +284,7 @@ class Game
         hp: 80,
         rotation: 45.0,
         position: {200.0, 200.0},
+        velocity: {0.0, 0.0},
         acceleration: {0.0, 0.0}
       }
     )
