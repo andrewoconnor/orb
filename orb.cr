@@ -103,7 +103,7 @@ class Movement(EntityT) < Behavior(EntityT)
     entity.move((last_velocity + entity.velocity) * 0.5 * dt)
     if (entity.position.y + entity.circle.radius) * -1 + 1080 < entity.circle.radius
       entity.behaviors.each { |b| b.free_fall = false if b.responds_to?(:free_fall) }
-      entity.position = {old_position.x, entity.circle.radius * -2 + 1080}
+      entity.position = {entity.position.x, entity.circle.radius * -2 + 1080}
     end
     entity.circle.position = entity.position
   end
@@ -284,7 +284,7 @@ class Game
         hp: 80,
         rotation: 45.0,
         position: {200.0, 200.0},
-        velocity: {0.0, 0.0},
+        velocity: {100.0, 0.0},
         acceleration: {0.0, 0.0}
       }
     )
