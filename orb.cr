@@ -89,18 +89,14 @@ end
 class Movement(EntityT) < Behavior(EntityT)
 
   def update(dt)
-    return unless can_move?
+    return unless movable?
     last_velocity = entity.velocity
     entity.velocity += entity.acceleration * dt
     entity.move((last_velocity + entity.velocity) * 0.5 * dt)
-    if (entity.position.y + entity.circle.radius * 2) >= 1080
-      gravity = entity.behaviors[:gravity]
-      gravity.update(dt) if gravity
-    end
     entity.circle.position = entity.position
   end
 
-  private def can_move?
+  private def movable?
     entity.responds_to?(:velocity) && entity.responds_to?(:acceleration)
   end
 end
@@ -201,7 +197,7 @@ class Player < Entity
   include Rotation
   include Velocity
   include Acceleration
-  include Behaviors(Gravity, Movement)
+  include Behaviors(Movement, Gravity)
 
   property circle : SF::CircleShape?
 
