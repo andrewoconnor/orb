@@ -37,7 +37,7 @@ end
 module Rotation
   macro included
     property rotation : Float32
-    
+
     def rotation=(angle)
       super
     end
@@ -82,12 +82,11 @@ abstract class Behavior(EntityT)
   def initialize(entity : EntityT)
     @entity = entity
   end
-  
+
   abstract def update(dt)
 end
 
 class Movement(EntityT) < Behavior(EntityT)
-
   def update(dt)
     return unless movable?
     last_velocity = entity.velocity
@@ -102,9 +101,8 @@ class Movement(EntityT) < Behavior(EntityT)
 end
 
 class Gravity(EntityT) < Behavior(EntityT)
-
   property max_height : Float32,
-           max_velocity : Float32
+    max_velocity : Float32
 
   def initialize(entity : EntityT)
     super
@@ -151,7 +149,7 @@ end
 
 class Entity < SF::Transformable
   property id : Int32?,
-           name : String?
+    name : String?
 
   def initialize(**attributes)
     super
@@ -202,11 +200,12 @@ class Player < Entity
   property circle : SF::CircleShape?
 
   def circle
-    @circle ||= SF::CircleShape.new.tap do |c|
-      c.position = position
-      c.radius = 50.0
-      c.fill_color = SF::Color::White
-    end.as(SF::CircleShape)
+    @circle ||= SF::CircleShape.new
+      .tap { |c|
+        c.position = position
+        c.radius = 50.0
+        c.fill_color = SF::Color::White
+      }.as(SF::CircleShape)
   end
 
   def draw(target : SF::RenderTarget, states : SF::RenderStates)
@@ -216,7 +215,7 @@ end
 
 class Game
   property t : Float32,
-           accumulator : Float32
+    accumulator : Float32
 
   def initialize
     @t = 0.0_f32
@@ -230,19 +229,23 @@ class Game
   def window
     @window ||= SF::RenderWindow
       .new(mode, "orb")
-      .tap { |w| w.vertical_sync_enabled = true }
-      .as(SF::RenderWindow)
+      .tap { |w|
+        w.vertical_sync_enabled = true
+        w.mouse_cursor = cursor
+      }.as(SF::RenderWindow)
+  end
+
+  def cursor
+    @cursor ||= SF::Cursor.new
+      .tap { |c|
+        c.load_from_system(SF::Cursor::Cross)
+      }.as(SF::Cursor)
   end
 
   def debug_draw
     @debug_draw ||= SFMLDebugDraw.new(
       window,
-      SF::RenderStates.new(
-        SF::Transform.new
-          .translate(window.size / 2)
-          .scale(1, -1)
-          .scale(5, 5)
-      )
+      SF::RenderStates.new
     )
   end
 
@@ -253,20 +256,20 @@ class Game
         s.gravity = gravity
         s.add(ground)
         s.add(ground2)
-        s.add(ball_body)
-        s.add(ball_shape)
+        # s.add(ball_body)
+        # s.add(ball_shape)
       }.as(CP::Space)
   end
 
   def gravity
-    @gravity ||= CP.v(0, -100)
+    @gravity ||= CP.v(0, 800)
   end
 
   def ground
     @ground ||= CP::Segment.new(
       space.static_body,
-      CP.v(-50, 5),
-      CP.v(50, -5),
+      CP.v(800, 500),
+      CP.v(1020, 510),
       0.0
     ).tap { |g|
       g.friction = 1.0
@@ -274,11 +277,11 @@ class Game
     }.as(CP::Segment)
   end
 
-   def ground2
+  def ground2
     @ground2 ||= CP::Segment.new(
       space.static_body,
-      CP.v(60, -20),
-      CP.v(140, -15),
+      CP.v(1080, 550),
+      CP.v(1300, 530),
       0.0
     ).tap { |g|
       g.friction = 1.0
@@ -291,26 +294,47 @@ class Game
   end
 
   def radius
-    5.0
+    25.0
   end
 
   def moment
     @moment ||= CP::Circle.moment(mass, 0.0, radius)
   end
 
+  def mouse_position
+    SF::Mouse.get_position(window)
+  end
+
   def ball_body
-    @ball_body ||= CP::Body.new(mass, moment)
+    CP::Body.new(mass, moment)
       .tap { |b|
-        b.position = CP.v(0, 45)
+        b.position = CP.v(mouse_position.x, mouse_position.y)
+        space.add(b)
       }.as(CP::Body)
   end
 
   def ball_shape
-    @ball_shape ||= CP::Circle.new(ball_body, radius)
+    CP::Circle.new(ball_body, radius)
       .tap { |s|
         s.friction = 0.7
         s.elasticity = 0.5
+        space.add(s)
       }.as(CP::Circle)
+  end
+
+  def ball_bodies
+    @ball_bodies ||= Array(CP::Body | Nil).new
+  end
+
+  def ball_shapes
+    @ball_shapes ||= Array(CP::Circle).new
+  end
+
+  def spawn_ball
+    ball_shape.tap do |s|
+      ball_bodies << s.body
+      ball_shapes << s
+    end
   end
 
   def clock
@@ -328,11 +352,11 @@ class Game
   def player
     @player ||= Player.new(
       **{
-        hp: 80,
-        rotation: 45.0,
-        position: {200.0, 15.0},
-        velocity: {0.0, 0.0},
-        acceleration: {0.0, 0.0}
+        hp:           80,
+        rotation:     45.0,
+        position:     {200.0, 15.0},
+        velocity:     {0.0, 0.0},
+        acceleration: {0.0, 0.0},
       }
     )
   end
@@ -342,6 +366,10 @@ class Game
       case event
       when SF::Event::Closed
         window.close
+      when SF::Event::KeyPressed
+        window.close if event.code == SF::Keyboard::Escape
+      when SF::Event::MouseButtonPressed
+        spawn_ball if event.button == SF::Mouse::Left
       end
     end
   end
@@ -356,14 +384,23 @@ class Game
         space.step(dt)
         # player.update(dt)
 
-        @accumulator -= dt;
-        @t += dt;
+        @accumulator -= dt
+        @t += dt
       end
 
       window.clear
       # window.draw(player)
 
-      debug_draw.draw_circle(CP.v(ball_body.position.x, ball_body.position.y), ball_body.angle, radius, SFMLDebugDraw::Color.new(0.0, 1.0, 0.0), SFMLDebugDraw::Color.new(0.0, 0.0, 0.0))
+      ball_bodies.compact.each do |ball_body|
+        debug_draw.draw_circle(
+          CP.v(ball_body.position.x, ball_body.position.y),
+          ball_body.angle,
+          radius,
+          SFMLDebugDraw::Color.new(0.0, 1.0, 0.0),
+          SFMLDebugDraw::Color.new(0.0, 0.0, 0.0)
+        )
+      end
+
       debug_draw.draw_segment(ground.a, ground.b, SFMLDebugDraw::Color.new(1.0, 0.0, 0.0))
       debug_draw.draw_segment(ground2.a, ground2.b, SFMLDebugDraw::Color.new(1.0, 0.0, 0.0))
       window.display
