@@ -1,4 +1,4 @@
-require "crsfml"
+require "chipmunk/chipmunk_crsfml"
 
 module Health
   macro included
@@ -185,7 +185,7 @@ module Behaviors(*BehaviorT)
     end
 
     def update(dt)
-      behaviors.each { |_, b| b.update(dt) }
+      # behaviors.each { |_, b| b.update(dt) }
     end
   end
 end
@@ -204,7 +204,7 @@ class Player < Entity
   def circle
     @circle ||= SF::CircleShape.new.tap do |c|
       c.position = position
-      c.radius = 50
+      c.radius = 50.0
       c.fill_color = SF::Color::White
     end.as(SF::CircleShape)
   end
@@ -234,6 +234,85 @@ class Game
       .as(SF::RenderWindow)
   end
 
+  def debug_draw
+    @debug_draw ||= SFMLDebugDraw.new(
+      window,
+      SF::RenderStates.new(
+        SF::Transform.new
+          .translate(window.size / 2)
+          .scale(1, -1)
+          .scale(5, 5)
+      )
+    )
+  end
+
+  def space
+    @space ||= CP::Space.new
+      .tap { |s|
+        @space = s
+        s.gravity = gravity
+        s.add(ground)
+        s.add(ground2)
+        s.add(ball_body)
+        s.add(ball_shape)
+      }.as(CP::Space)
+  end
+
+  def gravity
+    @gravity ||= CP.v(0, -100)
+  end
+
+  def ground
+    @ground ||= CP::Segment.new(
+      space.static_body,
+      CP.v(-50, 5),
+      CP.v(50, -5),
+      0.0
+    ).tap { |g|
+      g.friction = 1.0
+      g.elasticity = 1.0
+    }.as(CP::Segment)
+  end
+
+   def ground2
+    @ground2 ||= CP::Segment.new(
+      space.static_body,
+      CP.v(60, -20),
+      CP.v(140, -15),
+      0.0
+    ).tap { |g|
+      g.friction = 1.0
+      g.elasticity = 1.0
+    }.as(CP::Segment)
+  end
+
+  def mass
+    1.0
+  end
+
+  def radius
+    5.0
+  end
+
+  def moment
+    @moment ||= CP::Circle.moment(mass, 0.0, radius)
+  end
+
+  def ball_body
+    @ball_body ||= CP::Body.new(mass, moment)
+      .tap { |b|
+        b.position = CP.v(0, 45)
+      }.as(CP::Body)
+  end
+
+  def ball_shape
+    @ball_shape ||= CP::Circle.new(ball_body, radius)
+      .tap { |s|
+        s.friction = 0.7
+        s.elasticity = 0.5
+      }.as(CP::Circle)
+  end
+
   def clock
     @clock ||= SF::Clock.new
   end
@@ -251,8 +330,8 @@ class Game
       **{
         hp: 80,
         rotation: 45.0,
-        position: {200.0, 200.0},
-        velocity: {100.0, 0.0},
+        position: {200.0, 15.0},
+        velocity: {0.0, 0.0},
         acceleration: {0.0, 0.0}
       }
     )
@@ -274,14 +353,19 @@ class Game
       @accumulator += frame_time
 
       while accumulator >= dt
-        player.update(dt)
+        space.step(dt)
+        # player.update(dt)
 
         @accumulator -= dt;
         @t += dt;
       end
 
       window.clear
-      window.draw(player)
+      # window.draw(player)
+
+      debug_draw.draw_circle(CP.v(ball_body.position.x, ball_body.position.y), ball_body.angle, radius, SFMLDebugDraw::Color.new(0.0, 1.0, 0.0), SFMLDebugDraw::Color.new(0.0, 0.0, 0.0))
+      debug_draw.draw_segment(ground.a, ground.b, SFMLDebugDraw::Color.new(1.0, 0.0, 0.0))
+      debug_draw.draw_segment(ground2.a, ground2.b, SFMLDebugDraw::Color.new(1.0, 0.0, 0.0))
       window.display
     end
   end
