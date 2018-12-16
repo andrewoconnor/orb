@@ -256,8 +256,6 @@ class Game
         s.gravity = gravity
         s.add(ground)
         s.add(ground2)
-        # s.add(ball_body)
-        # s.add(ball_shape)
       }.as(CP::Space)
   end
 
@@ -317,13 +315,9 @@ class Game
     CP::Circle.new(ball_body, radius)
       .tap { |s|
         s.friction = 0.7
-        s.elasticity = 0.5
+        s.elasticity = 0.8
         space.add(s)
       }.as(CP::Circle)
-  end
-
-  def ball_bodies
-    @ball_bodies ||= Array(CP::Body | Nil).new
   end
 
   def ball_shapes
@@ -331,10 +325,7 @@ class Game
   end
 
   def spawn_ball
-    ball_shape.tap do |s|
-      ball_bodies << s.body
-      ball_shapes << s
-    end
+    ball_shapes << ball_shape
   end
 
   def clock
@@ -391,15 +382,22 @@ class Game
       window.clear
       # window.draw(player)
 
-      ball_bodies.compact.each do |ball_body|
-        debug_draw.draw_circle(
-          CP.v(ball_body.position.x, ball_body.position.y),
-          ball_body.angle,
-          radius,
-          SFMLDebugDraw::Color.new(0.0, 1.0, 0.0),
-          SFMLDebugDraw::Color.new(0.0, 0.0, 0.0)
-        )
-      end
+      puts "balls: #{ball_shapes.size}"
+
+      ball_shapes
+        .reject! { |ball_shape|
+          ball_body = ball_shape.body.not_nil!
+          ball_body.position.y > 1080 && space.remove(ball_shape, ball_body).nil?
+        }.each { |ball_shape|
+          ball_body = ball_shape.body.not_nil!
+          debug_draw.draw_circle(
+            CP.v(ball_body.position.x, ball_body.position.y),
+            ball_body.angle,
+            radius,
+            SFMLDebugDraw::Color.new(0.0, 1.0, 0.0),
+            SFMLDebugDraw::Color.new(0.0, 0.0, 0.0)
+          )
+        }
 
       debug_draw.draw_segment(ground.a, ground.b, SFMLDebugDraw::Color.new(1.0, 0.0, 0.0))
       debug_draw.draw_segment(ground2.a, ground2.b, SFMLDebugDraw::Color.new(1.0, 0.0, 0.0))
