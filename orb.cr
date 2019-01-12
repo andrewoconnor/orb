@@ -76,80 +76,10 @@ module Acceleration
   end
 end
 
-abstract class Behavior(EntityT)
-  getter entity
-
-  def initialize(entity : EntityT)
-    @entity = entity
-  end
-
-  abstract def update(dt)
-end
-
-class Movement(EntityT) < Behavior(EntityT)
-  def update(dt)
-    return unless movable?
-    last_velocity = entity.velocity
-    entity.velocity += entity.acceleration * dt
-    entity.move((last_velocity + entity.velocity) * 0.5 * dt)
-    entity.circle.position = entity.position
-  end
-
-  private def movable?
-    entity.responds_to?(:velocity) && entity.responds_to?(:acceleration)
-  end
-end
-
-class Gravity(EntityT) < Behavior(EntityT)
-  property max_height : Float32,
-    max_velocity : Float32
-
-  def initialize(entity : EntityT)
-    super
-    @max_height = height
-    @max_velocity = Math.sqrt(2 * max_height * gravity)
-    @free_fall = true
-  end
-
-  def stop_height
-    @stop_height ||= 0.1
-  end
-
-  def height
-    (entity.position.y + entity.circle.radius * 2)
-  end
-
-  def gravity
-    @gravity ||= 1800.0
-  end
-
-  def rho
-    @rho ||= 0.75 # coefficient of restitution
-  end
-
-  # TODO: take the average of entity acceleration and gravity
-  def update(dt)
-    if max_height < stop_height
-      entity.velocity = {entity.velocity.x, 0.0_f32}
-      entity.acceleration = {entity.acceleration.x, 0.0f32}
-      return
-    end
-    if height >= 1080
-      entity.position = {entity.position.x, 1080 - entity.circle.radius * 2}
-      entity.velocity = {entity.velocity.x, -1 * max_velocity}
-      @max_velocity *= rho
-      entity.move(entity.velocity * dt)
-      entity.circle.position = entity.position
-    else
-      entity.acceleration = {entity.acceleration.x, (entity.acceleration.y + gravity) * 0.5}
-    end
-    @max_height = (max_velocity * max_velocity / (gravity * 2)).as(Float32)
-  end
-end
-
 class Entity < SF::Transformable
   property id : Int32?,
-    name : String?
+    name : String?,
+    context : Game
 
   def initialize(**attributes)
     super
@@ -163,6 +93,64 @@ class Entity < SF::Transformable
   def name
     @name ||= "#{self.class}#{id}"
   end
+end
+
+abstract class Behavior(EntityT)
+  getter entity
+
+  def initialize(entity : EntityT)
+    @entity = entity
+  end
+
+  abstract def update(dt)
+end
+
+class FaceMouse(EntityT) < Behavior(EntityT)
+
+  def context
+    entity.context
+  end
+
+  def window
+    context.window.not_nil!
+  end
+
+  def body
+    entity.drawables[:body].as(SF::CircleShape)
+  end
+
+  def radius
+    body.radius
+  end
+
+  def crosshair
+    SF::Mouse.get_position(window)
+  end
+
+  def center
+    entity.position
+  end
+
+  def angle
+    Math.atan2(crosshair.y - center.y, crosshair.x - center.x)
+  end
+
+  def degrees
+    angle * 180.0 / Math::PI + (angle < 0 ? 360 : 0)
+  end
+
+  def edge
+    center + SF.vector2f(Math.cos(angle), Math.sin(angle)) * radius
+  end
+
+  def update(dt)
+    entity.rotate(degrees - entity.rotation)
+    entity.drawables[:face] = SF::VertexArray.new(SF::Lines, 2).tap { |v|
+      v[0] = SF::Vertex.new(center, SF::Color::Green)
+      v[1] = SF::Vertex.new(edge, SF::Color::Green)
+    }.as(SF::VertexArray)
+  end
+
 end
 
 module Behaviors(*BehaviorT)
@@ -183,34 +171,37 @@ module Behaviors(*BehaviorT)
     end
 
     def update(dt)
-      # behaviors.each { |_, b| b.update(dt) }
+      behaviors.each { |_, b| b.update(dt) }
+    end
+  end
+end
+
+module Drawable
+  macro included
+    include SF::Drawable
+
+    property drawables : Hash(Symbol, SF::Drawable)?
+
+    def drawables
+      @drawables ||= {} of Symbol => SF::Drawable
+    end
+
+    def draw(target : SF::RenderTarget, states : SF::RenderStates)
+      drawables.each do |_, drawable|
+        target.draw(drawable, states)
+      end
     end
   end
 end
 
 class Player < Entity
-  include SF::Drawable
+  include Drawable
   include Health
   include Position
   include Rotation
   include Velocity
   include Acceleration
-  include Behaviors(Movement, Gravity)
-
-  property circle : SF::CircleShape?
-
-  def circle
-    @circle ||= SF::CircleShape.new
-      .tap { |c|
-        c.position = position
-        c.radius = 50.0
-        c.fill_color = SF::Color::White
-      }.as(SF::CircleShape)
-  end
-
-  def draw(target : SF::RenderTarget, states : SF::RenderStates)
-    target.draw(circle, states)
-  end
+  include Behaviors(FaceMouse)
 end
 
 class Game
@@ -242,10 +233,24 @@ class Game
       }.as(SF::Cursor)
   end
 
+  def render_states
+    @render_states ||= SF::RenderStates.new
+  end
+
+  def screen
+    @screen ||= render_states.transform
+      .transform_rect(SF.float_rect(0, 0, 1, 1))
+      .as(SF::FloatRect)
+  end
+
+  def scale
+    @scale ||= (-2 / (screen.width + screen.height)).as(Float32)
+  end
+
   def debug_draw
     @debug_draw ||= SFMLDebugDraw.new(
       window,
-      SF::RenderStates.new
+      render_states
     )
   end
 
@@ -343,11 +348,22 @@ class Game
   def player
     @player ||= Player.new(
       **{
-        hp:           80,
-        rotation:     45.0,
-        position:     {200.0, 15.0},
-        velocity:     {0.0, 0.0},
-        acceleration: {0.0, 0.0},
+        context:        self,
+        hp:             80,
+        rotation:       90.0,
+        position:       {1000.0, 500.0},
+        velocity:       {0.0, 0.0},
+        acceleration:   {0.0, 0.0},
+        drawables:      {
+          :body => SF::CircleShape.new.tap { |c|
+            c.position = {1000.0, 500.0}
+            c.radius = 25.0
+            c.origin = {25.0, 25.0}
+            c.fill_color = SF::Color::Black
+            c.outline_color = SF::Color::Green
+            c.outline_thickness = scale * 1.25
+          }
+        } of Symbol => SF::Drawable
       }
     )
   end
@@ -373,14 +389,14 @@ class Game
 
       while accumulator >= dt
         space.step(dt)
-        # player.update(dt)
+        player.update(dt)
 
         @accumulator -= dt
         @t += dt
       end
 
       window.clear
-      # window.draw(player)
+      window.draw(player)
 
       puts "balls: #{ball_shapes.size}"
 
