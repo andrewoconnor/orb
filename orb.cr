@@ -76,6 +76,25 @@ module Acceleration
   end
 end
 
+# module Texture
+#   macro included
+#     property texture : SF::Texture?,
+#       sprite : SF::Sprite?
+
+#     def texture
+#       @texture ||= SF::Texture.new(640, 480)
+#     end
+
+#     def texture=(file)
+#       @texture = SF::Texture.from_file(file)
+#     end
+
+#     def sprite
+#       @sprite ||= SF::Sprite.new(texture)
+#     end
+#   end
+# end
+
 class Entity < SF::Transformable
   property id : Int32?,
     name : String?,
@@ -119,6 +138,10 @@ class FaceMouse(EntityT) < Behavior(EntityT)
     entity.drawables[:body].as(SF::CircleShape)
   end
 
+  def sprite
+    entity.drawables[:sprite].as(SF::Sprite)
+  end
+
   def radius
     body.radius
   end
@@ -145,6 +168,7 @@ class FaceMouse(EntityT) < Behavior(EntityT)
 
   def update(dt)
     entity.rotate(degrees - entity.rotation)
+    sprite.rotation = entity.rotation
     entity.drawables[:face] = SF::VertexArray.new(SF::Lines, 2).tap { |v|
       v[0] = SF::Vertex.new(center, SF::Color::Green)
       v[1] = SF::Vertex.new(edge, SF::Color::Green)
@@ -188,6 +212,7 @@ module Drawable
 
     def draw(target : SF::RenderTarget, states : SF::RenderStates)
       drawables.each do |_, drawable|
+        drawable.position = self.position if drawable.responds_to?(:position=)
         target.draw(drawable, states)
       end
     end
@@ -202,6 +227,97 @@ class Player < Entity
   include Velocity
   include Acceleration
   include Behaviors(FaceMouse)
+end
+
+class SpriteSheet
+
+  property files : Array(String),
+    texture : SF::Texture?
+
+  def initialize(files)
+    @files = files
+  end
+
+  def texture_size
+    @texture_size ||= SF::Texture.from_file(files.first).size.as(SF::Vector2i)
+  end
+
+  def sheet_size
+    @sheet_size ||= SF.vector2i(texture_size.x * files.size, texture_size.y)
+  end
+
+  def texture
+    @texture ||= SF::RenderTexture.new(sheet_size.x, sheet_size.y, false).tap { |sheet|
+      sheet.clear
+      files.each_with_index { |file, i|
+        sheet.draw(
+          SF::Sprite.new(SF::Texture.from_file(file)).tap { |s|
+            s.position = SF.vector2f(texture_size.x * i, 0)
+          }
+        )
+      }
+      sheet.display
+    }.texture
+  end
+end
+
+class Animation
+  include SF::Drawable
+
+  property sprite_sheet : SpriteSheet,
+    duration : Float32,
+    t : Float32,
+    curr_frame : Int32,
+    sprite : SF::Sprite,
+    paused : Bool
+  
+  def initialize(sprite_sheet, duration)
+    @sprite_sheet = sprite_sheet
+    @t = 0.0_f32
+    @duration = duration
+    @curr_frame = 0
+    @sprite = SF::Sprite.new(texture, texture_rect)
+    @paused = false
+  end
+
+  def num_frames
+    @num_frames ||= (sprite_sheet.files.size).as(Int32)
+  end
+
+  def frame_length
+    @frame_length ||= (duration / num_frames).as(Float32)
+  end
+
+  def texture_size
+    sprite_sheet.texture_size
+  end
+
+  def texture
+    sprite_sheet.texture
+  end
+
+  def texture_rect
+    SF.int_rect(texture_size.x * curr_frame, 0, texture_size.x, texture_size.y)
+  end
+
+  def next_frame?
+    !paused && @t >= frame_length
+  end
+
+  def update(dt)
+    @t += dt
+    return unless next_frame?
+    @t = 0.0_f32
+    @curr_frame = curr_frame >= (num_frames - 1) ? 0 : curr_frame + 1
+    @sprite.tap { |s|
+      s.texture_rect = texture_rect
+      s.position = SF.vector2f(100.0, 100.0)
+    }
+  end
+
+  def draw(target : SF::RenderTarget, states : SF::RenderStates)
+    target.draw(sprite, states)
+  end
 end
 
 class Game
@@ -362,6 +478,11 @@ class Game
             c.fill_color = SF::Color::Black
             c.outline_color = SF::Color::Green
             c.outline_thickness = scale * 1.25
+          },
+          :sprite => SF::Sprite.new(
+            SF::Texture.from_file("assets/textures/player/shotgun/idle/survivor-idle_shotgun_0.png")
+          ).tap { |s|
+            s.origin = {100.0, 120.0}
           }
         } of Symbol => SF::Drawable
       }
@@ -381,6 +502,20 @@ class Game
     end
   end
 
+  def reload_files
+    (0..19).to_a.map_with_index do |i|
+      "assets/textures/player/shotgun/reload/survivor-reload_shotgun_#{i}.png"
+    end
+  end
+
+  def reload_sprite_sheet
+    @reload_sprite_sheet ||= SpriteSheet.new(reload_files)
+  end
+
+  def reload_animation
+    @reload_animation ||= Animation.new(reload_sprite_sheet, 2.0_f32)
+  end
+
   def run
     while window.open?
       process_events
@@ -390,6 +525,7 @@ class Game
       while accumulator >= dt
         space.step(dt)
         player.update(dt)
+        reload_animation.update(dt)
 
         @accumulator -= dt
         @t += dt
@@ -398,7 +534,9 @@ class Game
       window.clear
       window.draw(player)
 
-      puts "balls: #{ball_shapes.size}"
+      window.draw(reload_animation)
+
+      # puts "balls: #{ball_shapes.size}"
 
       ball_shapes
         .reject! { |ball_shape|
