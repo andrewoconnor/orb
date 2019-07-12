@@ -63,18 +63,6 @@ module Acceleration
   end
 end
 
-# macro init_properties
-#   ([] of Symbol).tap do |props|
-#     \{% for klass in PropertyT %}
-#       \{% for ivar in HealthProperty.instance_vars %}
-#         props << \{{ivar.name.symbolize}}
-#       \{% end %}
-#     \{% end %}
-#   end
-# end
-
-# puts \{{klass}}::PROPERTIES
-
 module Properties(*PropertyT)
   macro included
     property properties : Hash(Symbol, Proc(Int32))?
@@ -133,15 +121,6 @@ end
 #   end
 # end
 
-# yield_with_self do
-#   {% if args.empty? %}
-#     {{prop.id}}
-#   {% else %}
-#     puts {{args.first}}
-#     self.{{prop.id}}({{*args}})
-#   {% end %}
-# end
-
 class Entity < SF::Transformable
   property id : Int32?
   property name : String?
@@ -159,24 +138,7 @@ class Entity < SF::Transformable
   def name
     @name ||= "#{self.class}#{id}"
   end
-
-  def yield_with_self
-    with self yield
-  end
-
-  # macro send(thing, props, *args)
-  #   {% for prop in props.resolve %}
-  #     puts {{prop}}
-  #   {% end %}
-  # end
 end
-
-# puts {{thing}}.{{prop.resolve}}
-# {% if args.size > 0 %}
-#    {{thing}}.{{prop.id}}({{*args}})
-# {% else %}
-#   {{thing}}.{{prop.id}}
-# {% end %}
 
 abstract class Behavior(Entity)
   getter entity
@@ -602,7 +564,6 @@ class Game
     imgui.next_column
     prop_flags = LibImGui::ImGuiTreeNodeFlags::Leaf | LibImGui::ImGuiTreeNodeFlags::NoTreePushOnOpen | LibImGui::ImGuiTreeNodeFlags::Bullet
     if node_open
-      # [:hp, :rotation, :position, :velocity, :accelerations].each_with_index(1) do |prop, idx|
       player.properties.each_with_index(1) do |(prop, val_callback), idx|
         imgui.push_id(99999 - idx)
         imgui.align_text_to_frame_padding
