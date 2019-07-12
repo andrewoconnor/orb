@@ -10,10 +10,12 @@ description: |
 dependencies:
   chipmunk:
     github: oprypin/crystal-chipmunk
+  crystal-raw-gl:
+    github: oprypin/crystal-raw-gl
 
 license: MIT
 
-crystal: 0.27.0
+crystal: 0.29.0
 
 libraries:
   chipmunk: 7.0.2

@@ -1,28 +1,23 @@
 require "chipmunk/chipmunk_crsfml"
+require "../crimgui/src/crimgui/imgui"
 
 module Health
   macro included
-    property hp : Int32?,
-             full_hp : Int32?,
-             max_hp : Int32?
-
-    def hp
-      @hp ||= 100
-    end
-
-    def full_hp
-      @full_hp ||= 100
-    end
-
-    def max_hp
-      @max_hp ||= 100
-    end
+    property hp : Int32 = 100
+    property full_hp : Int32 = 100
+    property max_hp : Int32 = 100
   end
+end
+
+class HealthProperty
+  include Health
+
+  PROPERTIES = [:hp, :full_hp, :max_hp]
 end
 
 module Position
   macro included
-    property position : SF::Vector2f
+    property position : SF::Vector2f = SF.vector2f(0.0, 0.0)
 
     def position=(position)
       super
@@ -36,7 +31,7 @@ end
 
 module Rotation
   macro included
-    property rotation : Float32
+    property rotation : Float32 = 0.0f32
 
     def rotation=(angle)
       super
@@ -50,11 +45,7 @@ end
 
 module Velocity
   macro included
-    property velocity : SF::Vector2f?
-
-    def velocity
-      @velocity ||= SF.vector2f(0.0, 0.0)
-    end
+    property velocity : SF::Vector2f = SF.vector2f(0.0, 0.0)
 
     def velocity=(velocity : Tuple(Number, Number))
       @velocity = SF.vector2f(*velocity)
@@ -64,14 +55,61 @@ end
 
 module Acceleration
   macro included
-    property acceleration : SF::Vector2f?
-
-    def acceleration
-      @acceleration ||= SF.vector2f(0.0, 0.0)
-    end
+    property acceleration : SF::Vector2f = SF.vector2f(0.0, 0.0)
 
     def acceleration=(acceleration : Tuple(Number, Number))
       @acceleration = SF.vector2f(*acceleration)
+    end
+  end
+end
+
+# macro init_properties
+#   ([] of Symbol).tap do |props|
+#     \{% for klass in PropertyT %}
+#       \{% for ivar in HealthProperty.instance_vars %}
+#         props << \{{ivar.name.symbolize}}
+#       \{% end %}
+#     \{% end %}
+#   end
+# end
+
+# puts \{{klass}}::PROPERTIES
+
+module Properties(*PropertyT)
+  macro included
+    property properties : Hash(Symbol, Proc(Int32))?
+    property callbacks : Hash(Symbol, Proc(Int32, Int32))?
+
+    \{% for klass in PropertyT %}
+      include \{{klass.stringify.gsub(/Property/, "").id}}
+    \{% end %}
+
+    def properties
+      @properties ||= init_properties
+    end
+
+    def callbacks
+      @callbacks ||= init_callbacks
+    end
+
+    macro init_properties
+      ({} of Symbol => Proc(Int32)).tap do |props|
+        \{% for klass in PropertyT %}
+          \{% for prop in HealthProperty::PROPERTIES %}
+            props[\{{prop}}] = -> { self.\{{prop.id}} }
+          \{% end %}
+        \{% end %}
+      end
+    end
+
+    macro init_callbacks
+      ({} of Symbol => Proc(Int32, Int32)).tap do |props|
+        \{% for klass in PropertyT %}
+          \{% for prop in HealthProperty::PROPERTIES %}
+            props[\{{prop}}] = ->(z : Int32) { self.\{{prop.id}} = z }
+          \{% end %}
+        \{% end %}
+      end
     end
   end
 end
@@ -95,10 +133,19 @@ end
 #   end
 # end
 
+# yield_with_self do
+#   {% if args.empty? %}
+#     {{prop.id}}
+#   {% else %}
+#     puts {{args.first}}
+#     self.{{prop.id}}({{*args}})
+#   {% end %}
+# end
+
 class Entity < SF::Transformable
-  property id : Int32?,
-    name : String?,
-    context : Game
+  property id : Int32?
+  property name : String?
+  property context : Game
 
   def initialize(**attributes)
     super
@@ -112,20 +159,36 @@ class Entity < SF::Transformable
   def name
     @name ||= "#{self.class}#{id}"
   end
+
+  def yield_with_self
+    with self yield
+  end
+
+  # macro send(thing, props, *args)
+  #   {% for prop in props.resolve %}
+  #     puts {{prop}}
+  #   {% end %}
+  # end
 end
 
-abstract class Behavior(EntityT)
+# puts {{thing}}.{{prop.resolve}}
+# {% if args.size > 0 %}
+#    {{thing}}.{{prop.id}}({{*args}})
+# {% else %}
+#   {{thing}}.{{prop.id}}
+# {% end %}
+
+abstract class Behavior(Entity)
   getter entity
 
-  def initialize(entity : EntityT)
+  def initialize(entity : Entity)
     @entity = entity
   end
 
   abstract def update(dt)
 end
 
-class FaceMouse(EntityT) < Behavior(EntityT)
-
+class FaceMouse(Entity) < Behavior(Entity)
   def context
     entity.context
   end
@@ -174,7 +237,6 @@ class FaceMouse(EntityT) < Behavior(EntityT)
       v[1] = SF::Vertex.new(edge, SF::Color::Green)
     }.as(SF::VertexArray)
   end
-
 end
 
 module Behaviors(*BehaviorT)
@@ -204,11 +266,7 @@ module Drawable
   macro included
     include SF::Drawable
 
-    property drawables : Hash(Symbol, SF::Drawable)?
-
-    def drawables
-      @drawables ||= {} of Symbol => SF::Drawable
-    end
+    property drawables : Hash(Symbol, SF::Drawable) = {} of Symbol => SF::Drawable
 
     def draw(target : SF::RenderTarget, states : SF::RenderStates)
       drawables.each do |_, drawable|
@@ -221,18 +279,18 @@ end
 
 class Player < Entity
   include Drawable
-  include Health
-  include Position
-  include Rotation
-  include Velocity
-  include Acceleration
+  # include Health
+  # include Position
+  # include Rotation
+  # include Velocity
+  # include Acceleration
+  include Properties(HealthProperty)
   include Behaviors(FaceMouse)
 end
 
 class SpriteSheet
-
-  property files : Array(String),
-    texture : SF::Texture?
+  property files : Array(String)
+  property texture : SF::Texture?
 
   def initialize(files)
     @files = files
@@ -246,15 +304,17 @@ class SpriteSheet
     @sheet_size ||= SF.vector2i(texture_size.x * files.size, texture_size.y)
   end
 
+  def sprite(file, offset)
+    SF::Sprite.new(SF::Texture.from_file(file)).tap do |s|
+      s.position = SF.vector2f(offset, 0)
+    end
+  end
+
   def texture
     @texture ||= SF::RenderTexture.new(sheet_size.x, sheet_size.y, false).tap { |sheet|
       sheet.clear
       files.each_with_index { |file, i|
-        sheet.draw(
-          SF::Sprite.new(SF::Texture.from_file(file)).tap { |s|
-            s.position = SF.vector2f(texture_size.x * i, 0)
-          }
-        )
+        sheet.draw(sprite(file, texture_size.x * i))
       }
       sheet.display
     }.texture
@@ -264,13 +324,13 @@ end
 class Animation
   include SF::Drawable
 
-  property sprite_sheet : SpriteSheet,
-    duration : Float32,
-    t : Float32,
-    curr_frame : Int32,
-    sprite : SF::Sprite,
-    paused : Bool
-  
+  property sprite_sheet : SpriteSheet
+  property duration : Float32
+  property t : Float32 = 0.0f32
+  property curr_frame : Int32 = 0
+  property sprite : SF::Sprite
+  property? paused : Bool = false
+
   def initialize(sprite_sheet, duration)
     @sprite_sheet = sprite_sheet
     @t = 0.0_f32
@@ -301,7 +361,7 @@ class Animation
   end
 
   def next_frame?
-    !paused && @t >= frame_length
+    !paused? && @t >= frame_length
   end
 
   def update(dt)
@@ -321,13 +381,9 @@ class Animation
 end
 
 class Game
-  property t : Float32,
-    accumulator : Float32
-
-  def initialize
-    @t = 0.0_f32
-    @accumulator = 0.0_f32
-  end
+  property t : Float32 = 0.0f32
+  property accumulator : Float32 = 0.0f32
+  property? show_debug_menu : Bool = false
 
   def mode
     @mode ||= SF::VideoMode.new(1920, 1080)
@@ -461,16 +517,24 @@ class Game
     clock.restart.as_seconds
   end
 
+  def imgui
+    @imgui ||= ImGui.new(window).tap { |i|
+      i.font_atlas_clear
+      i.add_font_from_file_ttf("/Library/Fonts/Andale Mono.ttf", 24.0)
+      i.update_font_texture
+    }.as(ImGui)
+  end
+
   def player
     @player ||= Player.new(
       **{
-        context:        self,
-        hp:             80,
-        rotation:       90.0,
-        position:       {1000.0, 500.0},
-        velocity:       {0.0, 0.0},
-        acceleration:   {0.0, 0.0},
-        drawables:      {
+        context:      self,
+        hp:           80,
+        rotation:     90.0,
+        position:     {1000.0, 500.0},
+        velocity:     {0.0, 0.0},
+        acceleration: {0.0, 0.0},
+        drawables:    {
           :body => SF::CircleShape.new.tap { |c|
             c.position = {1000.0, 500.0}
             c.radius = 25.0
@@ -483,21 +547,27 @@ class Game
             SF::Texture.from_file("assets/textures/player/shotgun/idle/survivor-idle_shotgun_0.png")
           ).tap { |s|
             s.origin = {100.0, 120.0}
-          }
-        } of Symbol => SF::Drawable
+          },
+        } of Symbol => SF::Drawable,
       }
     )
   end
 
   def process_events
     while event = window.poll_event
+      imgui.process_event(event)
       case event
       when SF::Event::Closed
         window.close
       when SF::Event::KeyPressed
-        window.close if event.code == SF::Keyboard::Escape
-      when SF::Event::MouseButtonPressed
-        spawn_ball if event.button == SF::Mouse::Left
+        case event.code
+        when SF::Keyboard::Escape
+          window.close
+        when SF::Keyboard::Hyphen # osx for tilde
+          @show_debug_menu = !show_debug_menu?
+        end
+        # when SF::Event::MouseButtonPressed
+        #   spawn_ball if event.button == SF::Mouse::Left && !show_debug_menu
       end
     end
   end
@@ -516,11 +586,51 @@ class Game
     @reload_animation ||= Animation.new(reload_sprite_sheet, 2.0_f32)
   end
 
+  def debug_menu
+    imgui.set_next_window_size(ImVec2.new(430, 450), LibImGui::ImGuiCond::FirstUseEver)
+    if !imgui.begin("Property editor")
+      imgui.end
+      return
+    end
+    imgui.push_style_var(LibImGui::ImGuiStyleVar::FramePadding, ImVec2.new(2, 2))
+    imgui.push_id(99999)
+    imgui.align_text_to_frame_padding
+    node_open = imgui.tree_node("Player1", "Player1")
+    imgui.separator
+    imgui.columns(2)
+    imgui.next_column
+    imgui.next_column
+    prop_flags = LibImGui::ImGuiTreeNodeFlags::Leaf | LibImGui::ImGuiTreeNodeFlags::NoTreePushOnOpen | LibImGui::ImGuiTreeNodeFlags::Bullet
+    if node_open
+      # [:hp, :rotation, :position, :velocity, :accelerations].each_with_index(1) do |prop, idx|
+      player.properties.each_with_index(1) do |(prop, val_callback), idx|
+        imgui.push_id(99999 - idx)
+        imgui.align_text_to_frame_padding
+        imgui.tree_node_ex(prop.to_s, prop_flags, prop.to_s)
+        imgui.next_column
+        val = val_callback.call
+        ptr = pointerof(val)
+        if imgui.input_int("###{prop}_int", ptr, 1, 10, LibImGui::ImGuiInputTextFlags::None)
+          player.callbacks[prop].call(ptr.value)
+        end
+        imgui.next_column
+        imgui.pop_id
+      end
+      imgui.tree_pop
+    end
+    imgui.pop_id
+    imgui.pop_style_var
+    imgui.end
+  end
+
   def run
     while window.open?
       process_events
 
-      @accumulator += frame_time
+      frame_time.tap do |ft|
+        @accumulator += ft
+        imgui.update(ft) # don't handle events in fixed step
+      end
 
       while accumulator >= dt
         space.step(dt)
@@ -532,29 +642,35 @@ class Game
       end
 
       window.clear
-      window.draw(player)
+      # window.draw(player)
 
-      window.draw(reload_animation)
+      # window.draw(reload_animation)
 
-      # puts "balls: #{ball_shapes.size}"
+      # ball_shapes
+      #   .reject! { |ball_shape|
+      #     ball_body = ball_shape.body.not_nil!
+      #     ball_body.position.y > 1080 && space.remove(ball_shape, ball_body).nil?
+      #   }.each { |ball_shape|
+      #     ball_body = ball_shape.body.not_nil!
+      #     debug_draw.draw_circle(
+      #       CP.v(ball_body.position.x, ball_body.position.y),
+      #       ball_body.angle,
+      #       radius,
+      #       SFMLDebugDraw::Color.new(0.0, 1.0, 0.0),
+      #       SFMLDebugDraw::Color.new(0.0, 0.0, 0.0)
+      #     )
+      #   }
 
-      ball_shapes
-        .reject! { |ball_shape|
-          ball_body = ball_shape.body.not_nil!
-          ball_body.position.y > 1080 && space.remove(ball_shape, ball_body).nil?
-        }.each { |ball_shape|
-          ball_body = ball_shape.body.not_nil!
-          debug_draw.draw_circle(
-            CP.v(ball_body.position.x, ball_body.position.y),
-            ball_body.angle,
-            radius,
-            SFMLDebugDraw::Color.new(0.0, 1.0, 0.0),
-            SFMLDebugDraw::Color.new(0.0, 0.0, 0.0)
-          )
-        }
+      # debug_draw.draw_segment(ground.a, ground.b, SFMLDebugDraw::Color.new(1.0, 0.0, 0.0))
+      # debug_draw.draw_segment(ground2.a, ground2.b, SFMLDebugDraw::Color.new(1.0, 0.0, 0.0))
 
-      debug_draw.draw_segment(ground.a, ground.b, SFMLDebugDraw::Color.new(1.0, 0.0, 0.0))
-      debug_draw.draw_segment(ground2.a, ground2.b, SFMLDebugDraw::Color.new(1.0, 0.0, 0.0))
+      imgui.new_frame
+      debug_menu if show_debug_menu?
+      imgui.show_demo_window
+      imgui.end_frame
+      imgui.render
+      window.draw(imgui)
+
       window.display
     end
   end

@@ -4,3 +4,7 @@ shards:
     github: oprypin/crystal-chipmunk
     commit: ae26c76f903f8e017a9da0b510f0a4b24f95b6a6
 
+  crystal-raw-gl:
+    github: oprypin/crystal-raw-gl
+    commit: 4847269778b814d9a1c1ab7a2caa4c93e1896cd9
+
