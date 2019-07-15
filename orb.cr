@@ -80,8 +80,8 @@ module Properties(*PropertyT)
 
     macro klass_props(klass)
       ({} of Symbol => Proc(Int32)).tap do |props|
-        \{% for prop in klass.resolve.instance_vars %}
-          props[\{{prop.symbolize}}] = -> { self.\{{prop.id}} }
+        \{% for ivar in klass.resolve.instance_vars %}
+          props[\{{ivar.symbolize}}] = Proc(\{{ivar.type}}).new { self.\{{ivar.id}} }
         \{% end %}
       end
     end
@@ -96,8 +96,8 @@ module Properties(*PropertyT)
 
     macro klass_callbacks(klass)
       ({} of Symbol => Proc(Int32, Int32)).tap do |calls|
-        \{% for prop in klass.resolve.instance_vars %}
-          calls[\{{prop.symbolize}}] = ->(z : Int32) { self.\{{prop.id}} = z }
+        \{% for ivar in klass.resolve.instance_vars %}
+          calls[\{{ivar.symbolize}}] = Proc(\{{ivar.type}}, \{{ivar.type}}).new { |prop| self.\{{ivar.id}} = prop }
         \{% end %}
       end
     end
