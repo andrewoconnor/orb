@@ -11,8 +11,6 @@ end
 
 class HealthProperty
   include Health
-
-  PROPERTIES = [:hp, :full_hp, :max_hp]
 end
 
 module Position
@@ -69,7 +67,7 @@ module Properties(*PropertyT)
     property callbacks : Hash(Symbol, Proc(Int32, Int32))?
 
     \{% for klass in PropertyT %}
-      include \{{klass.stringify.gsub(/Property/, "").id}}
+      include \{{klass}}
     \{% end %}
 
     def properties
@@ -80,22 +78,34 @@ module Properties(*PropertyT)
       @callbacks ||= init_callbacks
     end
 
+    macro klass_props(klass)
+      ({} of Symbol => Proc(Int32)).tap do |props|
+        \{% for prop in klass.resolve.instance_vars %}
+          props[\{{prop.symbolize}}] = -> { self.\{{prop.id}} }
+        \{% end %}
+      end
+    end
+
     macro init_properties
       ({} of Symbol => Proc(Int32)).tap do |props|
         \{% for klass in PropertyT %}
-          \{% for prop in HealthProperty::PROPERTIES %}
-            props[\{{prop}}] = -> { self.\{{prop.id}} }
-          \{% end %}
+          props.merge! klass_props(\{{"#{klass}Property".id}})
+        \{% end %}
+      end
+    end
+
+    macro klass_callbacks(klass)
+      ({} of Symbol => Proc(Int32, Int32)).tap do |calls|
+        \{% for prop in klass.resolve.instance_vars %}
+          calls[\{{prop.symbolize}}] = ->(z : Int32) { self.\{{prop.id}} = z }
         \{% end %}
       end
     end
 
     macro init_callbacks
-      ({} of Symbol => Proc(Int32, Int32)).tap do |props|
+      ({} of Symbol => Proc(Int32, Int32)).tap do |calls|
         \{% for klass in PropertyT %}
-          \{% for prop in HealthProperty::PROPERTIES %}
-            props[\{{prop}}] = ->(z : Int32) { self.\{{prop.id}} = z }
-          \{% end %}
+          calls.merge! klass_callbacks(\{{"#{klass}Property".id}})
         \{% end %}
       end
     end
@@ -246,7 +256,7 @@ class Player < Entity
   # include Rotation
   # include Velocity
   # include Acceleration
-  include Properties(HealthProperty)
+  include Properties(Health)
   include Behaviors(FaceMouse)
 end
 
