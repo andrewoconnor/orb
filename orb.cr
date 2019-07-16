@@ -17,7 +17,11 @@ module Position
   macro included
     property position : SF::Vector2f = SF.vector2f(0.0, 0.0)
 
-    def position=(position)
+    def position=(position : Tuple(Float32, Float32))
+      super(SF.vector2f(*position))
+    end
+
+    def position=(position : SF::Vector2f)
       super
     end
 
@@ -35,7 +39,7 @@ module Rotation
   macro included
     property rotation : Float32 = 0.0f32
 
-    def rotation=(angle)
+    def rotation=(angle : Float32)
       super
     end
 
@@ -229,8 +233,7 @@ class FaceMouse(Entity) < Behavior(Entity)
   end
 
   def update(dt)
-    return if context.show_debug_menu?
-    entity.rotate(degrees - entity.rotation)
+    entity.rotate(degrees - entity.rotation) unless context.show_debug_menu?
     sprite.rotation = entity.rotation
     entity.drawables[:face] = SF::VertexArray.new(SF::Lines, 2).tap { |v|
       v[0] = SF::Vertex.new(center, SF::Color::Green)
@@ -525,7 +528,7 @@ class Game
       **{
         context:      self,
         hp:           80,
-        rotation:     90.0,
+        rotation:     90.0f32,
         position:     {1000.0, 500.0},
         velocity:     {0.0f32, 0.0f32},
         acceleration: {0.0f32, 0.0f32},
@@ -660,7 +663,7 @@ class Game
       end
 
       window.clear
-      # window.draw(player)
+      window.draw(player)
 
       # window.draw(reload_animation)
 
