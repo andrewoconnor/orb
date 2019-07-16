@@ -27,6 +27,10 @@ module Position
   end
 end
 
+class PositionProperty
+  include Position
+end
+
 module Rotation
   macro included
     property rotation : Float32 = 0.0f32
@@ -41,30 +45,51 @@ module Rotation
   end
 end
 
+class RotationProperty
+  include Rotation
+end
+
 module Velocity
   macro included
     property velocity : SF::Vector2f = SF.vector2f(0.0, 0.0)
 
-    def velocity=(velocity : Tuple(Number, Number))
+    def velocity=(velocity : Tuple(Float32, Float32))
       @velocity = SF.vector2f(*velocity)
     end
+
+    def velocity=(velocity : SF::Vector2f)
+      @velocity = velocity
+    end
   end
+end
+
+class VelocityProperty
+  include Velocity
 end
 
 module Acceleration
   macro included
     property acceleration : SF::Vector2f = SF.vector2f(0.0, 0.0)
 
-    def acceleration=(acceleration : Tuple(Number, Number))
+    def acceleration=(acceleration : Tuple(Float32, Float32))
       @acceleration = SF.vector2f(*acceleration)
+    end
+
+    def acceleration=(acceleration : SF::Vector2f)
+      @acceleration = acceleration
     end
   end
 end
 
+class AccelerationProperty
+  include Acceleration
+end
+
 module Properties(*PropertyT)
   macro included
-    property properties : Hash(Symbol, Proc(Int32))?
-    property callbacks : Hash(Symbol, Proc(Int32, Int32))?
+    alias PropertyTypes = Pointer(Void) | Int32.class | Float32.class | SF::Vector2f.class
+    property properties : Hash(Symbol, Hash(Symbol, Pointer(Void)))?
+    property property_types : Hash(Symbol, PropertyTypes)?
 
     \{% for klass in PropertyT %}
       include \{{klass}}
@@ -74,38 +99,40 @@ module Properties(*PropertyT)
       @properties ||= init_properties
     end
 
-    def callbacks
-      @callbacks ||= init_callbacks
+    def property_types
+      @property_types ||= init_property_types
     end
 
     macro klass_props(klass)
-      ({} of Symbol => Proc(Int32)).tap do |props|
+      ({} of Symbol => Hash(Symbol, Pointer(Void))).tap do |props|
         \{% for ivar in klass.resolve.instance_vars %}
-          props[\{{ivar.symbolize}}] = Proc(\{{ivar.type}}).new { self.\{{ivar.id}} }
+          props[\{{ivar.symbolize}}] ||= {} of Symbol => Pointer(Void)
+          props[\{{ivar.symbolize}}][:get] = Box.box(-> { self.\{{ivar.id}} })
+          props[\{{ivar.symbolize}}][:set] = Box.box(-> (val : \{{ivar.type}}) { self.\{{ivar.id}} = val })
         \{% end %}
       end
     end
 
     macro init_properties
-      ({} of Symbol => Proc(Int32)).tap do |props|
+      ({} of Symbol => Hash(Symbol, Pointer(Void))).tap do |props|
         \{% for klass in PropertyT %}
           props.merge! klass_props(\{{"#{klass}Property".id}})
         \{% end %}
       end
     end
 
-    macro klass_callbacks(klass)
-      ({} of Symbol => Proc(Int32, Int32)).tap do |calls|
+    macro klass_prop_types(klass)
+      ({} of Symbol => PropertyTypes).tap do |types|
         \{% for ivar in klass.resolve.instance_vars %}
-          calls[\{{ivar.symbolize}}] = Proc(\{{ivar.type}}, \{{ivar.type}}).new { |prop| self.\{{ivar.id}} = prop }
+          types[\{{ivar.symbolize}}] = \{{ivar.type}}
         \{% end %}
       end
     end
 
-    macro init_callbacks
-      ({} of Symbol => Proc(Int32, Int32)).tap do |calls|
+    macro init_property_types
+      ({} of Symbol => PropertyTypes).tap do |types|
         \{% for klass in PropertyT %}
-          calls.merge! klass_callbacks(\{{"#{klass}Property".id}})
+          types.merge! klass_prop_types(\{{"#{klass}Property".id}})
         \{% end %}
       end
     end
@@ -202,6 +229,7 @@ class FaceMouse(Entity) < Behavior(Entity)
   end
 
   def update(dt)
+    return if context.show_debug_menu?
     entity.rotate(degrees - entity.rotation)
     sprite.rotation = entity.rotation
     entity.drawables[:face] = SF::VertexArray.new(SF::Lines, 2).tap { |v|
@@ -251,12 +279,7 @@ end
 
 class Player < Entity
   include Drawable
-  # include Health
-  # include Position
-  # include Rotation
-  # include Velocity
-  # include Acceleration
-  include Properties(Health)
+  include Properties(Health, Rotation, Position, Velocity, Acceleration)
   include Behaviors(FaceMouse)
 end
 
@@ -504,8 +527,8 @@ class Game
         hp:           80,
         rotation:     90.0,
         position:     {1000.0, 500.0},
-        velocity:     {0.0, 0.0},
-        acceleration: {0.0, 0.0},
+        velocity:     {0.0f32, 0.0f32},
+        acceleration: {0.0f32, 0.0f32},
         drawables:    {
           :body => SF::CircleShape.new.tap { |c|
             c.position = {1000.0, 500.0}
@@ -574,15 +597,39 @@ class Game
     imgui.next_column
     prop_flags = LibImGui::ImGuiTreeNodeFlags::Leaf | LibImGui::ImGuiTreeNodeFlags::NoTreePushOnOpen | LibImGui::ImGuiTreeNodeFlags::Bullet
     if node_open
-      player.properties.each_with_index(1) do |(prop, val_callback), idx|
+      player.properties.each_with_index(1) do |(prop, callbacks), idx|
         imgui.push_id(99999 - idx)
         imgui.align_text_to_frame_padding
         imgui.tree_node_ex(prop.to_s, prop_flags, prop.to_s)
         imgui.next_column
-        val = val_callback.call
-        ptr = pointerof(val)
-        if imgui.input_int("###{prop}_int", ptr, 1, 10, LibImGui::ImGuiInputTextFlags::None)
-          player.callbacks[prop].call(ptr.value)
+        if player.property_types[prop] == Int32
+          int_val = Box(Proc(Int32)).unbox(callbacks[:get]).call
+          int_ptr = pointerof(int_val)
+          if imgui.input_int("###{prop}_int", int_ptr, 1, 10)
+            Box(Proc(Int32, Int32)).unbox(callbacks[:set]).call(int_ptr.value)
+          end
+        elsif player.property_types[prop] == Float32
+          float_val = Box(Proc(Float32)).unbox(callbacks[:get]).call
+          float_ptr = pointerof(float_val)
+          if imgui.input_float("###{prop}_float", float_ptr, 0.1, 1.0, "%.1f")
+            Box(Proc(Float32, Float32)).unbox(callbacks[:set]).call(float_ptr.value)
+          end
+        elsif player.property_types[prop] == SF::Vector2f
+          vec2f_val = Box(Proc(SF::Vector2f)).unbox(callbacks[:get]).call
+          fx = vec2f_val.x
+          fy = vec2f_val.y
+          fx_ptr = pointerof(fx)
+          fy_ptr = pointerof(fy)
+          if imgui.input_float("x###{prop}_float", fx_ptr, 0.1, 1.0, "%.1f")
+            new_vec = SF.vector2f(fx_ptr.value, fy)
+            Box(Proc(SF::Vector2f, SF::Vector2f)).unbox(callbacks[:set]).call(new_vec)
+          end
+          imgui.next_column
+          imgui.next_column
+          if imgui.input_float("y###{prop}_float", fy_ptr, 0.1, 1.0, "%.1f")
+            new_vec = SF.vector2f(fx, fy_ptr.value)
+            Box(Proc(SF::Vector2f, SF::Vector2f)).unbox(callbacks[:set]).call(new_vec)
+          end
         end
         imgui.next_column
         imgui.pop_id
