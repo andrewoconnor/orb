@@ -91,7 +91,7 @@ end
 
 module Properties(*PropertyT)
   macro included
-    alias PropertyTypes = Pointer(Void) | Int32.class | Float32.class | SF::Vector2f.class
+    alias PropertyTypes = Int32.class | Float32.class | SF::Vector2f.class
     property properties : Hash(Symbol, Hash(Symbol, Pointer(Void)))?
     property property_types : Hash(Symbol, PropertyTypes)?
 
@@ -105,6 +105,14 @@ module Properties(*PropertyT)
 
     def property_types
       @property_types ||= init_property_types
+    end
+
+    def get_prop(prop : Symbol, klass : T.class) forall T
+      Box(Proc(T)).unbox(properties[prop][:get]).call
+    end
+
+    def set_prop(prop : Symbol, val : T) forall T
+      Box(Proc(T, T)).unbox(properties[prop][:set]).call(val)
     end
 
     macro klass_props(klass)
@@ -570,14 +578,28 @@ class Game
     end
   end
 
-  def reload_files
-    (0..19).to_a.map_with_index do |i|
-      "assets/textures/player/shotgun/reload/survivor-reload_shotgun_#{i}.png"
+  def texture_files(dir)
+    files = Dir.new(dir).entries
+    num_textures = files.size - 2
+    tex_file = files.find { |f| ![".", ".."].includes?(f) }
+    tex_prefix = tex_file.try(&.match(/(.*?)(?=\d+\.\w+)/).try(&.[1]))
+    tex_ext = tex_file.try(&.split('.').last)
+    return [] of String if num_textures <= 0 || tex_prefix.nil? || tex_ext.nil?
+    (0...num_textures).map_with_index do |i|
+      "#{dir}#{tex_prefix}#{i}.#{tex_ext}"
     end
   end
 
+  def idle_sprite_sheet
+    @idle_sprite_sheet ||= SpriteSheet.new(texture_files("assets/textures/player/shotgun/idle/"))
+  end
+
+  def idle_animation
+    @idle_animation ||= Animation.new(idle_sprite_sheet, 2.0_f32)
+  end
+
   def reload_sprite_sheet
-    @reload_sprite_sheet ||= SpriteSheet.new(reload_files)
+    @reload_sprite_sheet ||= SpriteSheet.new(texture_files("assets/textures/player/shotgun/reload/"))
   end
 
   def reload_animation
@@ -605,33 +627,34 @@ class Game
         imgui.align_text_to_frame_padding
         imgui.tree_node_ex(prop.to_s, prop_flags, prop.to_s)
         imgui.next_column
-        if player.property_types[prop] == Int32
-          int_val = Box(Proc(Int32)).unbox(callbacks[:get]).call
+        case
+        when player.property_types[prop] == Int32
+          int_val = player.get_prop(prop, Int32)
           int_ptr = pointerof(int_val)
           if imgui.input_int("###{prop}_int", int_ptr, 1, 10)
-            Box(Proc(Int32, Int32)).unbox(callbacks[:set]).call(int_ptr.value)
+            player.set_prop(prop, int_ptr.value)
           end
-        elsif player.property_types[prop] == Float32
-          float_val = Box(Proc(Float32)).unbox(callbacks[:get]).call
+        when player.property_types[prop] == Float32
+          float_val = player.get_prop(prop, Float32)
           float_ptr = pointerof(float_val)
           if imgui.input_float("###{prop}_float", float_ptr, 0.1, 1.0, "%.1f")
-            Box(Proc(Float32, Float32)).unbox(callbacks[:set]).call(float_ptr.value)
+            player.set_prop(prop, float_ptr.value)
           end
-        elsif player.property_types[prop] == SF::Vector2f
-          vec2f_val = Box(Proc(SF::Vector2f)).unbox(callbacks[:get]).call
+        when player.property_types[prop] == SF::Vector2f
+          vec2f_val = player.get_prop(prop, SF::Vector2f)
           fx = vec2f_val.x
           fy = vec2f_val.y
           fx_ptr = pointerof(fx)
           fy_ptr = pointerof(fy)
           if imgui.input_float("x###{prop}_float", fx_ptr, 0.1, 1.0, "%.1f")
             new_vec = SF.vector2f(fx_ptr.value, fy)
-            Box(Proc(SF::Vector2f, SF::Vector2f)).unbox(callbacks[:set]).call(new_vec)
+            player.set_prop(prop, new_vec)
           end
           imgui.next_column
           imgui.next_column
           if imgui.input_float("y###{prop}_float", fy_ptr, 0.1, 1.0, "%.1f")
             new_vec = SF.vector2f(fx, fy_ptr.value)
-            Box(Proc(SF::Vector2f, SF::Vector2f)).unbox(callbacks[:set]).call(new_vec)
+            player.set_prop(prop, new_vec)
           end
         end
         imgui.next_column
@@ -665,7 +688,7 @@ class Game
       window.clear
       window.draw(player)
 
-      # window.draw(reload_animation)
+      window.draw(reload_animation)
 
       # ball_shapes
       #   .reject! { |ball_shape|
