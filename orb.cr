@@ -627,20 +627,20 @@ class Game
         imgui.align_text_to_frame_padding
         imgui.tree_node_ex(prop.to_s, prop_flags, prop.to_s)
         imgui.next_column
-        case
-        when player.property_types[prop] == Int32
+        case player.property_types[prop]
+        when Int32.class
           int_val = player.get_prop(prop, Int32)
           int_ptr = pointerof(int_val)
           if imgui.input_int("###{prop}_int", int_ptr, 1, 10)
             player.set_prop(prop, int_ptr.value)
           end
-        when player.property_types[prop] == Float32
+        when Float32.class
           float_val = player.get_prop(prop, Float32)
           float_ptr = pointerof(float_val)
           if imgui.input_float("###{prop}_float", float_ptr, 0.1, 1.0, "%.1f")
             player.set_prop(prop, float_ptr.value)
           end
-        when player.property_types[prop] == SF::Vector2f
+        when SF::Vector2f.class
           vec2f_val = player.get_prop(prop, SF::Vector2f)
           fx = vec2f_val.x
           fy = vec2f_val.y
