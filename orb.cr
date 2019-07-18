@@ -151,25 +151,6 @@ module Properties(*PropertyT)
   end
 end
 
-# module Texture
-#   macro included
-#     property texture : SF::Texture?,
-#       sprite : SF::Sprite?
-
-#     def texture
-#       @texture ||= SF::Texture.new(640, 480)
-#     end
-
-#     def texture=(file)
-#       @texture = SF::Texture.from_file(file)
-#     end
-
-#     def sprite
-#       @sprite ||= SF::Sprite.new(texture)
-#     end
-#   end
-# end
-
 class Entity < SF::Transformable
   property id : Int32?
   property name : String?
@@ -213,7 +194,8 @@ class FaceMouse(Entity) < Behavior(Entity)
   end
 
   def sprite
-    entity.drawables[:sprite].as(SF::Sprite)
+    s = entity.drawables[:current_sprite]
+    s.is_a?(Animation) ? s.sprite.as(SF::Sprite) : SF::Sprite.new
   end
 
   def radius
@@ -281,8 +263,7 @@ module Drawable
 
     def draw(target : SF::RenderTarget, states : SF::RenderStates)
       drawables.each do |_, drawable|
-        drawable.position = self.position if drawable.responds_to?(:position=)
-        target.draw(drawable, states)
+        target.draw(drawable, states) unless drawable.is_a?(Animation) && !drawable.visible?
       end
     end
   end
@@ -330,20 +311,28 @@ end
 class Animation
   include SF::Drawable
 
+  property entity : Entity
   property sprite_sheet : SpriteSheet
   property duration : Float32
   property t : Float32 = 0.0f32
   property curr_frame : Int32 = 0
   property sprite : SF::Sprite
   property? paused : Bool = false
+  property? loop : Bool = false
+  property? visible : Bool = false
+  property origin
 
-  def initialize(sprite_sheet, duration)
+  def initialize(entity, sprite_sheet, duration, loop, origin : SF::Vector2f | Tuple(Float32, Float32))
+    @entity = entity
     @sprite_sheet = sprite_sheet
-    @t = 0.0_f32
     @duration = duration
-    @curr_frame = 0
-    @sprite = SF::Sprite.new(texture, texture_rect)
-    @paused = false
+    @loop = loop
+    @sprite = SF::Sprite.new(texture, texture_rect).tap do |s|
+      s.position = entity.position
+      s.rotation = entity.rotation
+      s.origin = origin
+    end
+    @origin = origin
   end
 
   def num_frames
@@ -370,14 +359,37 @@ class Animation
     !paused? && @t >= frame_length
   end
 
+  def finished?
+    curr_frame >= (num_frames - 1)
+  end
+
   def update(dt)
     @t += dt
     return unless next_frame?
     @t = 0.0_f32
-    @curr_frame = curr_frame >= (num_frames - 1) ? 0 : curr_frame + 1
+    if finished?
+      if entity.is_a?(Drawable) && !loop?
+        @visible = false
+        entity.as(Drawable).tap do |e|
+          e.drawables[:current_sprite] = e.drawables[:default_sprite]
+          e.drawables[:current_sprite].as(Animation).tap do |a|
+            a.visible = true
+            a.curr_frame = 0
+            a.sprite.rotation = sprite.rotation
+            a.sprite.position = sprite.position
+            a.update(dt)
+          end
+        end
+      end
+      @curr_frame = 0
+    else
+      @curr_frame = curr_frame + 1
+    end
     @sprite.tap { |s|
       s.texture_rect = texture_rect
-      s.position = SF.vector2f(100.0, 100.0)
+      s.position = entity.position
+      s.rotation = entity.rotation
+      s.origin = origin
     }
   end
 
@@ -549,14 +561,13 @@ class Game
             c.outline_color = SF::Color::Green
             c.outline_thickness = scale * 1.25
           },
-          :sprite => SF::Sprite.new(
-            SF::Texture.from_file("assets/textures/player/shotgun/idle/survivor-idle_shotgun_0.png")
-          ).tap { |s|
-            s.origin = {100.0, 120.0}
-          },
         } of Symbol => SF::Drawable,
       }
-    )
+    ).tap { |p|
+      @player = p
+      p.drawables[:default_sprite] = idle_animation
+      p.drawables[:current_sprite] = idle_animation.tap { |a| a.visible = true }
+    }.as(Player)
   end
 
   def process_events
@@ -571,6 +582,9 @@ class Game
           window.close
         when SF::Keyboard::Hyphen # osx for tilde
           @show_debug_menu = !show_debug_menu?
+        when SF::Keyboard::R
+          player.drawables[:current_sprite].as(Animation).visible = false if player.drawables[:current_sprite].is_a?(Animation)
+          player.drawables[:current_sprite] = reload_animation.tap { |a| a.visible = true }
         end
         # when SF::Event::MouseButtonPressed
         #   spawn_ball if event.button == SF::Mouse::Left && !show_debug_menu
@@ -595,7 +609,7 @@ class Game
   end
 
   def idle_animation
-    @idle_animation ||= Animation.new(idle_sprite_sheet, 2.0_f32)
+    @idle_animation ||= Animation.new(player, idle_sprite_sheet, 2.0_f32, true, {100.0f32, 120.0f32})
   end
 
   def reload_sprite_sheet
@@ -603,7 +617,7 @@ class Game
   end
 
   def reload_animation
-    @reload_animation ||= Animation.new(reload_sprite_sheet, 2.0_f32)
+    @reload_animation ||= Animation.new(player, reload_sprite_sheet, 2.0_f32, false, {100.0f32, 120.0f32})
   end
 
   def debug_menu
@@ -679,7 +693,7 @@ class Game
       while accumulator >= dt
         space.step(dt)
         player.update(dt)
-        reload_animation.update(dt)
+        player.drawables[:current_sprite].tap { |a| a.update(dt) if a.is_a?(Animation) }
 
         @accumulator -= dt
         @t += dt
@@ -688,7 +702,7 @@ class Game
       window.clear
       window.draw(player)
 
-      window.draw(reload_animation)
+      # window.draw(reload_animation)
 
       # ball_shapes
       #   .reject! { |ball_shape|
