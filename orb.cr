@@ -363,10 +363,16 @@ class Animation
     curr_frame >= (num_frames - 1)
   end
 
+  def restart
+    @t = 0.0f32
+    @curr_frame = 0
+    @sprite.texture_rect = texture_rect
+  end
+
   def update(dt)
     @t += dt
     return unless next_frame?
-    @t = 0.0_f32
+    @t = 0.0f32
     if finished?
       if entity.is_a?(Drawable) && !loop?
         @visible = false
@@ -584,18 +590,26 @@ class Game
           @show_debug_menu = !show_debug_menu?
         when SF::Keyboard::R
           player.drawables[:current_sprite].as(Animation).visible = false if player.drawables[:current_sprite].is_a?(Animation)
-          player.drawables[:current_sprite] = reload_animation.tap { |a| a.visible = true }
+          player.drawables[:current_sprite] = reload_animation.tap { |a| a.restart; a.visible = true }
+        when SF::Keyboard::F
+          player.drawables[:current_sprite].as(Animation).visible = false if player.drawables[:current_sprite].is_a?(Animation)
+          player.drawables[:current_sprite] = melee_animation.tap { |a| a.restart; a.visible = true }
+        when SF::Keyboard::W, SF::Keyboard::A, SF::Keyboard::S, SF::Keyboard::D
+          player.drawables[:current_sprite].as(Animation).visible = false if player.drawables[:current_sprite].is_a?(Animation)
+          player.drawables[:current_sprite] = move_animation.tap { |a| a.visible = true }
         end
-        # when SF::Event::MouseButtonPressed
+      when SF::Event::MouseButtonPressed
+        player.drawables[:current_sprite].as(Animation).visible = false if player.drawables[:current_sprite].is_a?(Animation)
+        player.drawables[:current_sprite] = shoot_animation.tap { |a| a.visible = true }
         #   spawn_ball if event.button == SF::Mouse::Left && !show_debug_menu
       end
     end
   end
 
   def texture_files(dir)
-    files = Dir.new(dir).entries
-    num_textures = files.size - 2
-    tex_file = files.find { |f| ![".", ".."].includes?(f) }
+    files = Dir.new(dir).entries if Dir.exists?(dir)
+    num_textures = (files.try(&.size) || 0) - 2
+    tex_file = files.find { |f| ![".", ".."].includes?(f) } if files
     tex_prefix = tex_file.try(&.match(/(.*?)(?=\d+\.\w+)/).try(&.[1]))
     tex_ext = tex_file.try(&.split('.').last)
     return [] of String if num_textures <= 0 || tex_prefix.nil? || tex_ext.nil?
@@ -609,7 +623,7 @@ class Game
   end
 
   def idle_animation
-    @idle_animation ||= Animation.new(player, idle_sprite_sheet, 2.0_f32, true, {100.0f32, 120.0f32})
+    @idle_animation ||= Animation.new(player, idle_sprite_sheet, 2.0f32, true, {100.0f32, 120.0f32})
   end
 
   def reload_sprite_sheet
@@ -617,7 +631,31 @@ class Game
   end
 
   def reload_animation
-    @reload_animation ||= Animation.new(player, reload_sprite_sheet, 2.0_f32, false, {100.0f32, 120.0f32})
+    @reload_animation ||= Animation.new(player, reload_sprite_sheet, 2.0f32, false, {110.0f32, 120.0f32})
+  end
+
+  def melee_sprite_sheet
+    @melee_sprite_sheet ||= SpriteSheet.new(texture_files("assets/textures/player/shotgun/meleeattack/"))
+  end
+
+  def melee_animation
+    @melee_animation ||= Animation.new(player, melee_sprite_sheet, 1.0f32, false, {120.0f32, 200.0f32})
+  end
+
+  def move_sprite_sheet
+    @move_sprite_sheet ||= SpriteSheet.new(texture_files("assets/textures/player/shotgun/move/"))
+  end
+
+  def move_animation
+    @move_animation ||= Animation.new(player, move_sprite_sheet, 0.8f32, true, {100.0f32, 120.0f32})
+  end
+
+  def shoot_sprite_sheet
+    @shoot_sprite_sheet ||= SpriteSheet.new(texture_files("assets/textures/player/shotgun/shoot/"))
+  end
+
+  def shoot_animation
+    @shoot_animation ||= Animation.new(player, shoot_sprite_sheet, 0.25f32, false, {100.0f32, 120.0f32})
   end
 
   def debug_menu
