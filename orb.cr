@@ -170,6 +170,60 @@ class Entity < SF::Transformable
   end
 end
 
+class Bullet < Entity
+  include Properties(Rotation, Position, Velocity, Acceleration)
+end
+
+abstract class Weapon < Entity
+  property player : Player
+
+  abstract def primary_attack
+  abstract def melee_attack
+end
+
+module Ammo
+  macro included
+    property bullets_chambered : Int32 = 6
+    property mag_capacity : Int32 = 6
+    property max_capacity : Int32 = 24
+    property bullet_velocity : SF::Vector2f = SF.vector2f(0.0, 0.0)
+    property spread : Float32 = 0.50f32
+  end
+end
+
+class AmmoProperty
+  include Ammo
+end
+
+abstract class Gun < Weapon
+  include Properties(Ammo)
+
+  abstract def primary_attack
+  abstract def melee_attack
+  abstract def reload
+end
+
+class Shotgun < Gun
+  def primary_attack
+    (0..5).each do |b|
+      Bullet.new(**{
+        rotation: 90.0f32,
+        position: {1000.0, 500.0},
+        velocity: {0.0f32, 0.0f32},
+      })
+    end
+  end
+
+  def melee_attack
+  end
+
+  def reload
+    while rounds_chambered < mag_capacity
+      @rounds_chambered += 1
+    end
+  end
+end
+
 abstract class Behavior(Entity)
   getter entity
 
@@ -276,11 +330,16 @@ class Player < Entity
 end
 
 class SpriteSheet
-  property files : Array(String)
+  property dir : String
+  property files : Array(String)?
   property texture : SF::Texture?
+  property num_textures : Int32?
+  property random_file : String?
+  property file_attrs : Hash(Symbol, String)?
+  property frame_lengths : Array(Float32)?
 
-  def initialize(files)
-    @files = files
+  def initialize(dir)
+    @dir = dir
   end
 
   def texture_size
@@ -294,6 +353,32 @@ class SpriteSheet
   def sprite(file, offset)
     SF::Sprite.new(SF::Texture.from_file(file)).tap do |s|
       s.position = SF.vector2f(offset, 0)
+    end
+  end
+
+  def entries
+    raise "Directory does not exist: #{dir}" unless Dir.exists?(dir)
+    @entries ||= Dir.new(dir).entries.as(Array(String))
+  end
+
+  def num_textures
+    @num_textures ||= ((entries.try(&.size) || 2) - 2)
+  end
+
+  def random_file
+    @random_file ||= entries.find { |f| ![".", ".."].includes?(f) } if entries
+  end
+
+  def file_attrs
+    @file_attrs ||= {
+      :prefix    => File.basename(random_file.not_nil!).split('_')[0...-1].join('_'),
+      :extension => File.extname(random_file.not_nil!),
+    }
+  end
+
+  def files
+    @files ||= (0...num_textures).map_with_index do |i|
+      "#{dir}#{file_attrs[:prefix]}_#{i}#{file_attrs[:extension]}"
     end
   end
 
@@ -601,61 +686,67 @@ class Game
       when SF::Event::MouseButtonPressed
         player.drawables[:current_sprite].as(Animation).visible = false if player.drawables[:current_sprite].is_a?(Animation)
         player.drawables[:current_sprite] = shoot_animation.tap { |a| a.visible = true }
-        #   spawn_ball if event.button == SF::Mouse::Left && !show_debug_menu
+        Shotgun.new.primary_attack
+        # spawn_ball if event.button == SF::Mouse::Left && !show_debug_menu?
       end
     end
   end
 
-  def texture_files(dir)
-    files = Dir.new(dir).entries if Dir.exists?(dir)
-    num_textures = (files.try(&.size) || 0) - 2
-    tex_file = files.find { |f| ![".", ".."].includes?(f) } if files
-    tex_prefix = tex_file.try(&.match(/(.*?)(?=\d+\.\w+)/).try(&.[1]))
-    tex_ext = tex_file.try(&.split('.').last)
-    return [] of String if num_textures <= 0 || tex_prefix.nil? || tex_ext.nil?
-    (0...num_textures).map_with_index do |i|
-      "#{dir}#{tex_prefix}#{i}.#{tex_ext}"
+  def sprite_sheets
+    @sprite_sheets = {
+      :player_feet_idle              => SpriteSheet.new("assets/textures/player/feet/idle/"),
+      :player_feet_run               => SpriteSheet.new("assets/textures/player/feet/run/"),
+      :player_feet_strafeleft        => SpriteSheet.new("assets/textures/player/feet/strafeleft/"),
+      :player_feet_straferight       => SpriteSheet.new("assets/textures/player/feet/straferight/"),
+      :player_feet_walk              => SpriteSheet.new("assets/textures/player/feet/walk/"),
+      :player_flashlight_idle        => SpriteSheet.new("assets/textures/player/flashlight/idle/"),
+      :player_flashlight_meleeattack => SpriteSheet.new("assets/textures/player/flashlight/meleeattack/"),
+      :player_flashlight_move        => SpriteSheet.new("assets/textures/player/flashlight/move/"),
+      :player_handgun_idle           => SpriteSheet.new("assets/textures/player/handgun/idle/"),
+      :player_handgun_meleeattack    => SpriteSheet.new("assets/textures/player/handgun/meleeattack/"),
+      :player_handgun_move           => SpriteSheet.new("assets/textures/player/handgun/move/"),
+      :player_handgun_reload         => SpriteSheet.new("assets/textures/player/handgun/reload/"),
+      :player_handgun_shoot          => SpriteSheet.new("assets/textures/player/handgun/shoot/"),
+      :player_knife_idle             => SpriteSheet.new("assets/textures/player/knife/idle/"),
+      :player_knife_meleeattack      => SpriteSheet.new("assets/textures/player/knife/meleeattack/"),
+      :player_knife_move             => SpriteSheet.new("assets/textures/player/knife/move/"),
+      :player_rifle_idle             => SpriteSheet.new("assets/textures/player/rifle/idle/"),
+      :player_rifle_meleeattack      => SpriteSheet.new("assets/textures/player/rifle/meleeattack/"),
+      :player_rifle_move             => SpriteSheet.new("assets/textures/player/rifle/move/"),
+      :player_rifle_reload           => SpriteSheet.new("assets/textures/player/rifle/reload/"),
+      :player_rifle_shoot            => SpriteSheet.new("assets/textures/player/rifle/shoot/"),
+      :player_shotgun_idle           => SpriteSheet.new("assets/textures/player/shotgun/idle/"),
+      :player_shotgun_meleeattack    => SpriteSheet.new("assets/textures/player/shotgun/meleeattack/"),
+      :player_shotgun_move           => SpriteSheet.new("assets/textures/player/shotgun/move/"),
+      :player_shotgun_reload         => SpriteSheet.new("assets/textures/player/shotgun/reload/"),
+      :player_shotgun_shoot          => SpriteSheet.new("assets/textures/player/shotgun/shoot/"),
+    }
+  end
+
+  def player_animations
+    @player_animations ||= sprite_sheets.reduce({} of Symbol => Animation) do |a, (name, sheet)|
+      a[name] = Animation.new(player, sheet)
     end
   end
 
-  def idle_sprite_sheet
-    @idle_sprite_sheet ||= SpriteSheet.new(texture_files("assets/textures/player/shotgun/idle/"))
-  end
-
   def idle_animation
-    @idle_animation ||= Animation.new(player, idle_sprite_sheet, 2.0f32, true, {100.0f32, 120.0f32})
-  end
-
-  def reload_sprite_sheet
-    @reload_sprite_sheet ||= SpriteSheet.new(texture_files("assets/textures/player/shotgun/reload/"))
+    @idle_animation ||= Animation.new(player, sprite_sheets[:player_handgun_idle], 2.0f32, true, {100.0f32, 120.0f32})
   end
 
   def reload_animation
-    @reload_animation ||= Animation.new(player, reload_sprite_sheet, 2.0f32, false, {110.0f32, 120.0f32})
-  end
-
-  def melee_sprite_sheet
-    @melee_sprite_sheet ||= SpriteSheet.new(texture_files("assets/textures/player/shotgun/meleeattack/"))
+    @reload_animation ||= Animation.new(player, sprite_sheets[:player_handgun_reload], 2.0f32, false, {110.0f32, 120.0f32})
   end
 
   def melee_animation
-    @melee_animation ||= Animation.new(player, melee_sprite_sheet, 1.0f32, false, {120.0f32, 200.0f32})
-  end
-
-  def move_sprite_sheet
-    @move_sprite_sheet ||= SpriteSheet.new(texture_files("assets/textures/player/shotgun/move/"))
+    @melee_animation ||= Animation.new(player, sprite_sheets[:player_handgun_meleeattack], 1.0f32, false, {120.0f32, 200.0f32})
   end
 
   def move_animation
-    @move_animation ||= Animation.new(player, move_sprite_sheet, 0.8f32, true, {100.0f32, 120.0f32})
-  end
-
-  def shoot_sprite_sheet
-    @shoot_sprite_sheet ||= SpriteSheet.new(texture_files("assets/textures/player/shotgun/shoot/"))
+    @move_animation ||= Animation.new(player, sprite_sheets[:player_handgun_move], 0.8f32, true, {100.0f32, 120.0f32})
   end
 
   def shoot_animation
-    @shoot_animation ||= Animation.new(player, shoot_sprite_sheet, 0.25f32, false, {100.0f32, 120.0f32})
+    @shoot_animation ||= Animation.new(player, sprite_sheets[:player_handgun_shoot], 0.25f32, false, {100.0f32, 120.0f32})
   end
 
   def debug_menu
