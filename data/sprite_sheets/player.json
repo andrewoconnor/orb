@@ -1,0 +1,212 @@
+{
+  "data": [
+    {
+      "type": "sprite_sheets",
+      "id": "1",
+      "attributes": {
+        "name": "player_feet_idle",
+        "path": "assets/textures/player/feet/idle/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "2",
+      "attributes": {
+        "name": "player_feet_run",
+        "path": "assets/textures/player/feet/run/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "3",
+      "attributes": {
+        "name": "player_feet_strafeleft",
+        "path": "assets/textures/player/feet/strafeleft/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "4",
+      "attributes": {
+        "name": "player_feet_straferight",
+        "path": "assets/textures/player/feet/straferight/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "5",
+      "attributes": {
+        "name": "player_feet_walk",
+        "path": "assets/textures/player/feet/walk/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "6",
+      "attributes": {
+        "name": "player_flashlight_idle",
+        "path": "assets/textures/player/flashlight/idle/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "7",
+      "attributes": {
+        "name": "player_flashlight_melee",
+        "path": "assets/textures/player/flashlight/melee/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "8",
+      "attributes": {
+        "name": "player_flashlight_move",
+        "path": "assets/textures/player/flashlight/move/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "9",
+      "attributes": {
+        "name": "player_handgun_idle",
+        "path": "assets/textures/player/handgun/idle/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "10",
+      "attributes": {
+        "name": "player_handgun_melee",
+        "path": "assets/textures/player/handgun/melee/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "11",
+      "attributes": {
+        "name": "player_handgun_move",
+        "path": "assets/textures/player/handgun/move/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "12",
+      "attributes": {
+        "name": "player_handgun_reload",
+        "path": "assets/textures/player/handgun/reload/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "13",
+      "attributes": {
+        "name": "player_handgun_shoot",
+        "path": "assets/textures/player/handgun/shoot/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "14",
+      "attributes": {
+        "name": "player_knife_idle",
+        "path": "assets/textures/player/knife/idle/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "15",
+      "attributes": {
+        "name": "player_knife_melee",
+        "path": "assets/textures/player/knife/melee/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "16",
+      "attributes": {
+        "name": "player_knife_move",
+        "path": "assets/textures/player/knife/move/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "17",
+      "attributes": {
+        "name": "player_rifle_idle",
+        "path": "assets/textures/player/rifle/idle/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "18",
+      "attributes": {
+        "name": "player_rifle_melee",
+        "path": "assets/textures/player/rifle/melee/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "19",
+      "attributes": {
+        "name": "player_rifle_move",
+        "path": "assets/textures/player/rifle/move/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "20",
+      "attributes": {
+        "name": "player_rifle_reload",
+        "path": "assets/textures/player/rifle/reload/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "21",
+      "attributes": {
+        "name": "player_rifle_shoot",
+        "path": "assets/textures/player/rifle/shoot/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "22",
+      "attributes": {
+        "name": "player_shotgun_idle",
+        "path": "assets/textures/player/shotgun/idle/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "23",
+      "attributes": {
+        "name": "player_shotgun_melee",
+        "path": "assets/textures/player/shotgun/melee/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "24",
+      "attributes": {
+        "name": "player_shotgun_move",
+        "path": "assets/textures/player/shotgun/move/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "25",
+      "attributes": {
+        "name": "player_shotgun_reload",
+        "path": "assets/textures/player/shotgun/reload/"
+      }
+    },
+    {
+      "type": "sprite_sheets",
+      "id": "26",
+      "attributes": {
+        "name": "player_shotgun_shoot",
+        "path": "assets/textures/player/shotgun/shoot/"
+      }
+    }
+  ]
+}

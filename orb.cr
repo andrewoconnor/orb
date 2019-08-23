@@ -1,3 +1,5 @@
+require "json"
+
 require "chipmunk/chipmunk_crsfml"
 require "../crimgui/src/crimgui/imgui"
 
@@ -6,6 +8,7 @@ module Health
     property hp : Int32 = 100
     property full_hp : Int32 = 100
     property max_hp : Int32 = 100
+    property? invulnerable : Bool = false
   end
 end
 
@@ -89,9 +92,29 @@ class AccelerationProperty
   include Acceleration
 end
 
+# module PropertyInputs
+#   def input_for(prop)
+#     prop_type = property_types[prop]
+#     case prop_type
+#     when Int32.class
+#       int_val = get_prop(prop, prop_type)
+#       int_ptr = pointerof(int_val)
+#       if imgui.input_int("###{prop}_int", int_ptr, 1, 10)
+#         set_prop(prop, int_ptr.value)
+#       end
+#     when Float32.class
+#       float_val = get_prop(prop, prop_type)
+#       float_ptr = pointerof(float_val)
+#       if imgui.input_float("###{prop}_float", float_ptr, 0.1, 1.0, "%.1f")
+#         set_prop(prop, float_ptr.value)
+#       end
+#     end
+#   end
+# end
+
 module Properties(*PropertyT)
   macro included
-    alias PropertyTypes = Int32.class | Float32.class | SF::Vector2f.class
+    alias PropertyTypes = Bool.class | Int32.class | Float32.class | SF::Vector2f.class
     property properties : Hash(Symbol, Hash(Symbol, Pointer(Void)))?
     property property_types : Hash(Symbol, PropertyTypes)?
 
@@ -119,7 +142,8 @@ module Properties(*PropertyT)
       ({} of Symbol => Hash(Symbol, Pointer(Void))).tap do |props|
         \{% for ivar in klass.resolve.instance_vars %}
           props[\{{ivar.symbolize}}] ||= {} of Symbol => Pointer(Void)
-          props[\{{ivar.symbolize}}][:get] = Box.box(-> { self.\{{ivar.id}} })
+          \{% get_method = ivar.type == Bool ? "#{ivar}?".id : ivar.id  %}
+          props[\{{ivar.symbolize}}][:get] = Box.box(-> { self.\{{get_method}} })
           props[\{{ivar.symbolize}}][:set] = Box.box(-> (val : \{{ivar.type}}) { self.\{{ivar.id}} = val })
         \{% end %}
       end
@@ -183,9 +207,9 @@ end
 
 module Ammo
   macro included
-    property bullets_chambered : Int32 = 6
+    property bullets_in_mag : Int32 = 6
     property mag_capacity : Int32 = 6
-    property max_capacity : Int32 = 24
+    property max_carry : Int32 = 30
     property bullet_velocity : SF::Vector2f = SF.vector2f(0.0, 0.0)
     property spread : Float32 = 0.50f32
   end
@@ -218,8 +242,8 @@ class Shotgun < Gun
   end
 
   def reload
-    while rounds_chambered < mag_capacity
-      @rounds_chambered += 1
+    while bullets_in_mag < mag_capacity
+      @bullets_in_mag += 1
     end
   end
 end
@@ -338,7 +362,7 @@ class SpriteSheet
   property file_attrs : Hash(Symbol, String)?
   property frame_lengths : Array(Float32)?
 
-  def initialize(dir)
+  def initialize(dir : String)
     @dir = dir
   end
 
@@ -405,19 +429,14 @@ class Animation
   property? paused : Bool = false
   property? loop : Bool = false
   property? visible : Bool = false
-  property origin
+  property origin : (SF::Vector2f | Tuple(Float32, Float32)) = SF.vector2f(0.0, 0.0)
 
-  def initialize(entity, sprite_sheet, duration, loop, origin : SF::Vector2f | Tuple(Float32, Float32))
-    @entity = entity
-    @sprite_sheet = sprite_sheet
-    @duration = duration
-    @loop = loop
+  def initialize(@entity, @sprite_sheet, @duration, @origin : SF::Vector2f | Tuple(Float32, Float32), @loop)
     @sprite = SF::Sprite.new(texture, texture_rect).tap do |s|
       s.position = entity.position
       s.rotation = entity.rotation
       s.origin = origin
     end
-    @origin = origin
   end
 
   def num_frames
@@ -692,61 +711,133 @@ class Game
     end
   end
 
-  def sprite_sheets
-    @sprite_sheets = {
-      :player_feet_idle              => SpriteSheet.new("assets/textures/player/feet/idle/"),
-      :player_feet_run               => SpriteSheet.new("assets/textures/player/feet/run/"),
-      :player_feet_strafeleft        => SpriteSheet.new("assets/textures/player/feet/strafeleft/"),
-      :player_feet_straferight       => SpriteSheet.new("assets/textures/player/feet/straferight/"),
-      :player_feet_walk              => SpriteSheet.new("assets/textures/player/feet/walk/"),
-      :player_flashlight_idle        => SpriteSheet.new("assets/textures/player/flashlight/idle/"),
-      :player_flashlight_meleeattack => SpriteSheet.new("assets/textures/player/flashlight/meleeattack/"),
-      :player_flashlight_move        => SpriteSheet.new("assets/textures/player/flashlight/move/"),
-      :player_handgun_idle           => SpriteSheet.new("assets/textures/player/handgun/idle/"),
-      :player_handgun_meleeattack    => SpriteSheet.new("assets/textures/player/handgun/meleeattack/"),
-      :player_handgun_move           => SpriteSheet.new("assets/textures/player/handgun/move/"),
-      :player_handgun_reload         => SpriteSheet.new("assets/textures/player/handgun/reload/"),
-      :player_handgun_shoot          => SpriteSheet.new("assets/textures/player/handgun/shoot/"),
-      :player_knife_idle             => SpriteSheet.new("assets/textures/player/knife/idle/"),
-      :player_knife_meleeattack      => SpriteSheet.new("assets/textures/player/knife/meleeattack/"),
-      :player_knife_move             => SpriteSheet.new("assets/textures/player/knife/move/"),
-      :player_rifle_idle             => SpriteSheet.new("assets/textures/player/rifle/idle/"),
-      :player_rifle_meleeattack      => SpriteSheet.new("assets/textures/player/rifle/meleeattack/"),
-      :player_rifle_move             => SpriteSheet.new("assets/textures/player/rifle/move/"),
-      :player_rifle_reload           => SpriteSheet.new("assets/textures/player/rifle/reload/"),
-      :player_rifle_shoot            => SpriteSheet.new("assets/textures/player/rifle/shoot/"),
-      :player_shotgun_idle           => SpriteSheet.new("assets/textures/player/shotgun/idle/"),
-      :player_shotgun_meleeattack    => SpriteSheet.new("assets/textures/player/shotgun/meleeattack/"),
-      :player_shotgun_move           => SpriteSheet.new("assets/textures/player/shotgun/move/"),
-      :player_shotgun_reload         => SpriteSheet.new("assets/textures/player/shotgun/reload/"),
-      :player_shotgun_shoot          => SpriteSheet.new("assets/textures/player/shotgun/shoot/"),
-    }
+  def files(dir : String)
+    raise "Directory does not exist: #{dir}" unless Dir.exists?(dir)
+    Dir.new(dir).entries.as(Array(String)).reject { |f| [".", ".."].includes?(f) }
   end
 
-  def player_animations
-    @player_animations ||= sprite_sheets.reduce({} of Symbol => Animation) do |a, (name, sheet)|
-      a[name] = Animation.new(player, sheet)
+  module AnimationConverter
+    @@entity = Entity.new
+    @@sprite_sheets = [] of SpriteSheet
+
+    def self.init(entity : Entity, sheets : Array(SpriteSheet))
+      @@entity = entity
+      @@sprite_sheets = sheets
+      self
+    end
+
+    def self.from_json(pull : JSON::PullParser)
+      ([] of Animation).tap do |animations|
+        pull.read_array do
+          duration = 0.5f32
+          origin = {100.0f32, 100.0f32}
+          loop = false
+          pull.read_begin_object # animation
+          pull.read_object_key
+          pull.read_string
+          pull.read_object_key
+          pull.read_string
+          pull.read_object_key
+          pull.read_begin_object # attributes
+          pull.read_object_key
+          name = pull.read_string
+          pull.read_object_key
+          duration = pull.read_float.to_f32
+          pull.read_object_key
+          pull.read_array do
+            origin = {pull.read_float.to_f32, pull.read_float.to_f32}
+          end
+          pull.read_object_key
+          loop = pull.read_bool
+          pull.read_end_object # end attributes
+          pull.read_object_key
+          pull.read_begin_object # relationships
+          pull.read_object_key
+          pull.read_begin_object # sprite sheet
+          pull.read_object_key
+          pull.read_begin_object # data
+          pull.read_object_key
+          sprite_sheet = @@sprite_sheets[pull.read_string.to_i - 1]
+          pull.read_object_key
+          pull.read_string
+          pull.read_end_object # end data
+          pull.read_end_object # end sprite sheet
+          pull.read_end_object # end relationships
+          pull.read_end_object # end amimation
+          animations << Animation.new(
+            @@entity,
+            sprite_sheet,
+            duration,
+            origin,
+            loop
+          )
+        end
+      end
     end
   end
 
-  def idle_animation
-    @idle_animation ||= Animation.new(player, sprite_sheets[:player_handgun_idle], 2.0f32, true, {100.0f32, 120.0f32})
+  class AnimationData
+    include JSON::Serializable
+
+    @[JSON::Field(key: "data", converter: Game::AnimationConverter.init(@@entity.not_nil!, @@sprite_sheets.not_nil!))]
+    property animations : Array(Animation)?
+
+    def self.init(entity : Entity, sprite_sheets : Array(SpriteSheet))
+      @@entity = entity
+      @@sprite_sheets = sprite_sheets
+      self
+    end
   end
 
-  def reload_animation
-    @reload_animation ||= Animation.new(player, sprite_sheets[:player_handgun_reload], 2.0f32, false, {110.0f32, 120.0f32})
+  module SpriteSheetConverter
+    def self.from_json(pull : JSON::PullParser)
+      ([] of SpriteSheet).tap do |sprite_sheets|
+        pull.read_array do
+          pull.on_key("attributes") do
+            pull.on_key("path") do
+              sprite_sheets << SpriteSheet.new(pull.read_string)
+            end
+          end
+        end
+      end
+    end
+  end
+
+  class SpriteSheetData
+    include JSON::Serializable
+
+    @[JSON::Field(key: "data", converter: Game::SpriteSheetConverter)]
+    property sprite_sheets : Array(SpriteSheet)
+  end
+
+  def animations
+    puts "loading animations..."
+    @animations = AnimationData.init(player, sprite_sheets).from_json(File.read("data/animations/player.json")).animations.as(Array(Animation))
+  end
+
+  def sprite_sheets
+    puts "loading sprite_sheets..."
+    @sprite_sheets ||= SpriteSheetData.from_json(File.read("data/sprite_sheets/player.json")).sprite_sheets.as(Array(SpriteSheet))
+  end
+
+  def idle_animation
+    @idle_animation ||= animations[8].as(Animation)
   end
 
   def melee_animation
-    @melee_animation ||= Animation.new(player, sprite_sheets[:player_handgun_meleeattack], 1.0f32, false, {120.0f32, 200.0f32})
+    @melee_animation ||= animations[9].as(Animation)
   end
 
   def move_animation
-    @move_animation ||= Animation.new(player, sprite_sheets[:player_handgun_move], 0.8f32, true, {100.0f32, 120.0f32})
+    @move_animation ||= animations[10].as(Animation)
+  end
+
+  def reload_animation
+    @reload_animation ||= animations[11].as(Animation)
   end
 
   def shoot_animation
-    @shoot_animation ||= Animation.new(player, sprite_sheets[:player_handgun_shoot], 0.25f32, false, {100.0f32, 120.0f32})
+    @shoot_animation ||= animations[12].as(Animation)
   end
 
   def debug_menu
@@ -770,21 +861,22 @@ class Game
         imgui.align_text_to_frame_padding
         imgui.tree_node_ex(prop.to_s, prop_flags, prop.to_s)
         imgui.next_column
-        case player.property_types[prop]
+        prop_type = player.property_types[prop]
+        case prop_type
         when Int32.class
-          int_val = player.get_prop(prop, Int32)
+          int_val = player.get_prop(prop, prop_type)
           int_ptr = pointerof(int_val)
           if imgui.input_int("###{prop}_int", int_ptr, 1, 10)
             player.set_prop(prop, int_ptr.value)
           end
         when Float32.class
-          float_val = player.get_prop(prop, Float32)
+          float_val = player.get_prop(prop, prop_type)
           float_ptr = pointerof(float_val)
           if imgui.input_float("###{prop}_float", float_ptr, 0.1, 1.0, "%.1f")
             player.set_prop(prop, float_ptr.value)
           end
         when SF::Vector2f.class
-          vec2f_val = player.get_prop(prop, SF::Vector2f)
+          vec2f_val = player.get_prop(prop, prop_type)
           fx = vec2f_val.x
           fy = vec2f_val.y
           fx_ptr = pointerof(fx)
@@ -798,6 +890,12 @@ class Game
           if imgui.input_float("y###{prop}_float", fy_ptr, 0.1, 1.0, "%.1f")
             new_vec = SF.vector2f(fx, fy_ptr.value)
             player.set_prop(prop, new_vec)
+          end
+        when Bool.class
+          bool_val = player.get_prop(prop, prop_type)
+          bool_ptr = pointerof(bool_val)
+          if imgui.checkbox("###{prop}_bool", bool_ptr)
+            player.set_prop(prop, bool_ptr.value)
           end
         end
         imgui.next_column

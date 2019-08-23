@@ -1,0 +1,40 @@
+{
+  "data": [
+    {
+      "type": "weapons",
+      "id": "1",
+      "attributes": {
+        "name": "handgun",
+        "bullets_in_mag": 6,
+        "mag_capacity": 6,
+        "max_carry": 30,
+        "bullet_velocity": [10, 10],
+        "spread": 0.5
+      }
+    },
+    {
+      "type": "weapons",
+      "id": "2",
+      "attributes": {
+        "name": "rifle",
+        "bullets_in_mag": 6,
+        "mag_capacity": 6,
+        "max_carry": 30,
+        "bullet_velocity": [10, 10],
+        "spread": 0.5
+      }
+    },
+    {
+      "type": "weapons",
+      "id": "3",
+      "attributes": {
+        "name": "shotgun",
+        "bullets_in_mag": 6,
+        "mag_capacity": 6,
+        "max_carry": 30,
+        "bullet_velocity": [10, 10],
+        "spread": 0.5
+      }
+    }
+  ]
+}
