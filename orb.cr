@@ -122,6 +122,8 @@ module Properties(*PropertyT)
       include \{{klass}}
     \{% end %}
 
+    include PropertyUI
+
     def properties
       @properties ||= init_properties
     end
@@ -171,6 +173,67 @@ module Properties(*PropertyT)
           types.merge! klass_prop_types(\{{"#{klass}Property".id}})
         \{% end %}
       end
+    end
+  end
+end
+
+module PropertyUI
+  def imgui
+    @imgui ||= context.imgui.as(ImGui)
+  end
+
+  def property_tree
+    node_open = imgui.tree_node(self.name, self.name)
+    imgui.separator
+    imgui.columns(2)
+    imgui.next_column
+    imgui.next_column
+    prop_flags = LibImGui::ImGuiTreeNodeFlags::Leaf | LibImGui::ImGuiTreeNodeFlags::NoTreePushOnOpen | LibImGui::ImGuiTreeNodeFlags::Bullet
+    if node_open
+      self.properties.each_with_index(1) do |(prop, callbacks), idx|
+        imgui.align_text_to_frame_padding
+        imgui.tree_node_ex(prop.to_s, prop_flags, prop.to_s)
+        imgui.next_column
+        prop_type = self.property_types[prop]
+        case prop_type
+        when Int32.class
+          int_val = self.get_prop(prop, prop_type)
+          int_ptr = pointerof(int_val)
+          if imgui.input_int("###{prop}_int", int_ptr, 1, 10)
+            self.set_prop(prop, int_ptr.value)
+          end
+        when Float32.class
+          float_val = self.get_prop(prop, prop_type)
+          float_ptr = pointerof(float_val)
+          if imgui.input_float("###{prop}_float", float_ptr, 0.1, 1.0, "%.1f")
+            self.set_prop(prop, float_ptr.value)
+          end
+        when SF::Vector2f.class
+          vec2f_val = self.get_prop(prop, prop_type)
+          fx = vec2f_val.x
+          fy = vec2f_val.y
+          fx_ptr = pointerof(fx)
+          fy_ptr = pointerof(fy)
+          if imgui.input_float("x###{prop}_float", fx_ptr, 0.1, 1.0, "%.1f")
+            new_vec = SF.vector2f(fx_ptr.value, fy)
+            self.set_prop(prop, new_vec)
+          end
+          imgui.next_column
+          imgui.next_column
+          if imgui.input_float("y###{prop}_float", fy_ptr, 0.1, 1.0, "%.1f")
+            new_vec = SF.vector2f(fx, fy_ptr.value)
+            self.set_prop(prop, new_vec)
+          end
+        when Bool.class
+          bool_val = self.get_prop(prop, prop_type)
+          bool_ptr = pointerof(bool_val)
+          if imgui.checkbox("###{prop}_bool", bool_ptr)
+            self.set_prop(prop, bool_ptr.value)
+          end
+        end
+        imgui.next_column
+      end
+      imgui.tree_pop
     end
   end
 end
@@ -845,63 +908,8 @@ class Game
       return
     end
     imgui.push_style_var(LibImGui::ImGuiStyleVar::FramePadding, ImVec2.new(2, 2))
-    imgui.push_id(99999)
     imgui.align_text_to_frame_padding
-    node_open = imgui.tree_node("Player1", "Player1")
-    imgui.separator
-    imgui.columns(2)
-    imgui.next_column
-    imgui.next_column
-    prop_flags = LibImGui::ImGuiTreeNodeFlags::Leaf | LibImGui::ImGuiTreeNodeFlags::NoTreePushOnOpen | LibImGui::ImGuiTreeNodeFlags::Bullet
-    if node_open
-      player.properties.each_with_index(1) do |(prop, callbacks), idx|
-        imgui.push_id(99999 - idx)
-        imgui.align_text_to_frame_padding
-        imgui.tree_node_ex(prop.to_s, prop_flags, prop.to_s)
-        imgui.next_column
-        prop_type = player.property_types[prop]
-        case prop_type
-        when Int32.class
-          int_val = player.get_prop(prop, prop_type)
-          int_ptr = pointerof(int_val)
-          if imgui.input_int("###{prop}_int", int_ptr, 1, 10)
-            player.set_prop(prop, int_ptr.value)
-          end
-        when Float32.class
-          float_val = player.get_prop(prop, prop_type)
-          float_ptr = pointerof(float_val)
-          if imgui.input_float("###{prop}_float", float_ptr, 0.1, 1.0, "%.1f")
-            player.set_prop(prop, float_ptr.value)
-          end
-        when SF::Vector2f.class
-          vec2f_val = player.get_prop(prop, prop_type)
-          fx = vec2f_val.x
-          fy = vec2f_val.y
-          fx_ptr = pointerof(fx)
-          fy_ptr = pointerof(fy)
-          if imgui.input_float("x###{prop}_float", fx_ptr, 0.1, 1.0, "%.1f")
-            new_vec = SF.vector2f(fx_ptr.value, fy)
-            player.set_prop(prop, new_vec)
-          end
-          imgui.next_column
-          imgui.next_column
-          if imgui.input_float("y###{prop}_float", fy_ptr, 0.1, 1.0, "%.1f")
-            new_vec = SF.vector2f(fx, fy_ptr.value)
-            player.set_prop(prop, new_vec)
-          end
-        when Bool.class
-          bool_val = player.get_prop(prop, prop_type)
-          bool_ptr = pointerof(bool_val)
-          if imgui.checkbox("###{prop}_bool", bool_ptr)
-            player.set_prop(prop, bool_ptr.value)
-          end
-        end
-        imgui.next_column
-        imgui.pop_id
-      end
-      imgui.tree_pop
-    end
-    imgui.pop_id
+    player.property_tree
     imgui.pop_style_var
     imgui.end
   end
