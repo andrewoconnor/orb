@@ -251,8 +251,7 @@ end
 abstract class Behavior(Entity)
   getter entity
 
-  def initialize(entity : Entity)
-    @entity = entity
+  def initialize(@entity : Entity)
   end
 
   abstract def update(dt)
@@ -362,8 +361,7 @@ class SpriteSheet
   property file_attrs : Hash(Symbol, String)?
   property frame_lengths : Array(Float32)?
 
-  def initialize(dir : String)
-    @dir = dir
+  def initialize(@dir : String)
   end
 
   def texture_size
@@ -420,16 +418,16 @@ end
 class Animation
   include SF::Drawable
 
+  property sprite : SF::Sprite
   property entity : Entity
   property sprite_sheet : SpriteSheet
   property duration : Float32
+  property origin : (SF::Vector2f | Tuple(Float32, Float32)) = SF.vector2f(0.0, 0.0)
+  property? loop : Bool = false
   property t : Float32 = 0.0f32
   property curr_frame : Int32 = 0
-  property sprite : SF::Sprite
   property? paused : Bool = false
-  property? loop : Bool = false
   property? visible : Bool = false
-  property origin : (SF::Vector2f | Tuple(Float32, Float32)) = SF.vector2f(0.0, 0.0)
 
   def initialize(@entity, @sprite_sheet, @duration, @origin : SF::Vector2f | Tuple(Float32, Float32), @loop)
     @sprite = SF::Sprite.new(texture, texture_rect).tap do |s|
