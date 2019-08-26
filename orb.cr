@@ -92,31 +92,21 @@ class AccelerationProperty
   include Acceleration
 end
 
-# module PropertyInputs
-#   def input_for(prop)
-#     prop_type = property_types[prop]
-#     case prop_type
-#     when Int32.class
-#       int_val = get_prop(prop, prop_type)
-#       int_ptr = pointerof(int_val)
-#       if imgui.input_int("###{prop}_int", int_ptr, 1, 10)
-#         set_prop(prop, int_ptr.value)
-#       end
-#     when Float32.class
-#       float_val = get_prop(prop, prop_type)
-#       float_ptr = pointerof(float_val)
-#       if imgui.input_float("###{prop}_float", float_ptr, 0.1, 1.0, "%.1f")
-#         set_prop(prop, float_ptr.value)
-#       end
-#     end
-#   end
-# end
+module PrimaryWeapon
+  macro included
+    property primary_weapon : Weapon = Shotgun.new
+  end
+end
+
+class PrimaryWeaponProperty
+  include PrimaryWeapon
+end
 
 module Properties(*PropertyT)
   macro included
-    alias PropertyTypes = Bool.class | Int32.class | Float32.class | SF::Vector2f.class
     property properties : Hash(Symbol, Hash(Symbol, Pointer(Void)))?
-    property property_types : Hash(Symbol, PropertyTypes)?
+
+    PROPERTY_TYPES = {} of Nil => Nil
 
     \{% for klass in PropertyT %}
       include \{{klass}}
@@ -128,8 +118,8 @@ module Properties(*PropertyT)
       @properties ||= init_properties
     end
 
-    def property_types
-      @property_types ||= init_property_types
+    def property_types(prop)
+      property_types_helper(prop)
     end
 
     def get_prop(prop : Symbol, klass : T.class) forall T
@@ -147,6 +137,7 @@ module Properties(*PropertyT)
           \{% get_method = ivar.type == Bool ? "#{ivar}?".id : ivar.id  %}
           props[\{{ivar.symbolize}}][:get] = Box.box(-> { self.\{{get_method}} })
           props[\{{ivar.symbolize}}][:set] = Box.box(-> (val : \{{ivar.type}}) { self.\{{ivar.id}} = val })
+          \{% PROPERTY_TYPES[ivar.symbolize] = ivar.type %}
         \{% end %}
       end
     end
@@ -159,20 +150,10 @@ module Properties(*PropertyT)
       end
     end
 
-    macro klass_prop_types(klass)
-      ({} of Symbol => PropertyTypes).tap do |types|
-        \{% for ivar in klass.resolve.instance_vars %}
-          types[\{{ivar.symbolize}}] = \{{ivar.type}}
-        \{% end %}
-      end
-    end
-
-    macro init_property_types
-      ({} of Symbol => PropertyTypes).tap do |types|
-        \{% for klass in PropertyT %}
-          types.merge! klass_prop_types(\{{"#{klass}Property".id}})
-        \{% end %}
-      end
+    macro property_types_helper(prop)
+      \{% for k, v in PROPERTY_TYPES %}
+        return \{{v}} if \{{k}} == prop
+      \{% end %}
     end
   end
 end
@@ -194,7 +175,7 @@ module PropertyUI
         imgui.align_text_to_frame_padding
         imgui.tree_node_ex(prop.to_s, prop_flags, prop.to_s)
         imgui.next_column
-        prop_type = self.property_types[prop]
+        prop_type = self.property_types(prop)
         case prop_type
         when Int32.class
           int_val = self.get_prop(prop, prop_type)
@@ -411,7 +392,7 @@ end
 
 class Player < Entity
   include Drawable
-  include Properties(Health, Rotation, Position, Velocity, Acceleration)
+  include Properties(Health, Rotation, Position, Velocity, Acceleration, PrimaryWeapon)
   include Behaviors(FaceMouse)
 end
 
