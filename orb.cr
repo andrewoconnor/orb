@@ -106,7 +106,9 @@ module Properties(*PropertyT)
   macro included
     property properties : Hash(Symbol, Hash(Symbol, Pointer(Void)))?
 
-    PROPERTY_TYPES = {} of Nil => Nil
+    {% if !@type.constant :PROPERTY_TYPES %}
+      PROPERTY_TYPES = {} of Nil => Nil
+    {% end %}
 
     \{% for klass in PropertyT %}
       include \{{klass}}
@@ -151,9 +153,11 @@ module Properties(*PropertyT)
     end
 
     macro property_types_helper(prop)
+      case prop
       \{% for k, v in PROPERTY_TYPES %}
-        return \{{v}} if \{{k}} == prop
+        when \{{k}} then \{{v}}
       \{% end %}
+      end
     end
   end
 end
