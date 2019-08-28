@@ -104,7 +104,7 @@ end
 
 module Properties(*PropertyT)
   macro included
-    property properties : Hash(Symbol, Hash(Symbol, Pointer(Void)))?
+    property properties : Array(Symbol) = [] of Symbol
 
     {% if !@type.constant :PROPERTY_TYPES %}
       PROPERTY_TYPES = {} of Nil => Nil
@@ -116,8 +116,22 @@ module Properties(*PropertyT)
 
     include PropertyUI
 
+    macro klass_props(klass)
+      \{% for ivar in klass.resolve.instance_vars %}
+        \{% PROPERTY_TYPES[ivar.symbolize] = ivar.type %}
+      \{% end %}
+    end
+
+    macro init_properties
+      \{% for klass in PropertyT %}
+        klass_props(\{{"#{klass}Property".id}})
+      \{% end %}
+    end
+
     def properties
-      @properties ||= init_properties
+      return @properties unless @properties.empty?
+      init_properties
+      @properties = properties_helper
     end
 
     def property_types(prop)
@@ -125,31 +139,33 @@ module Properties(*PropertyT)
     end
 
     def get_prop(prop : Symbol, klass : T.class) forall T
-      Box(Proc(T)).unbox(properties[prop][:get]).call
+      get_prop_helper(prop).as(T)
     end
 
-    def set_prop(prop : Symbol, val : T) forall T
-      Box(Proc(T, T)).unbox(properties[prop][:set]).call(val)
-    end
-
-    macro klass_props(klass)
-      ({} of Symbol => Hash(Symbol, Pointer(Void))).tap do |props|
-        \{% for ivar in klass.resolve.instance_vars %}
-          props[\{{ivar.symbolize}}] ||= {} of Symbol => Pointer(Void)
-          \{% get_method = ivar.type == Bool ? "#{ivar}?".id : ivar.id  %}
-          props[\{{ivar.symbolize}}][:get] = Box.box(-> { self.\{{get_method}} })
-          props[\{{ivar.symbolize}}][:set] = Box.box(-> (val : \{{ivar.type}}) { self.\{{ivar.id}} = val })
-          \{% PROPERTY_TYPES[ivar.symbolize] = ivar.type %}
-        \{% end %}
+    macro get_prop_helper(prop)
+      case prop
+      \{% for k, v in PROPERTY_TYPES %}
+        when \{{k}} then self.\{{k.id}}\{{(v == Bool ? "?" : "").id}}
+      \{% end %}
       end
     end
 
-    macro init_properties
-      ({} of Symbol => Hash(Symbol, Pointer(Void))).tap do |props|
-        \{% for klass in PropertyT %}
-          props.merge! klass_props(\{{"#{klass}Property".id}})
-        \{% end %}
+    def set_prop(prop, value : T) forall T
+      Box(Proc(T, T)).unbox(set_prop_helper(prop)).call(value)
+    end
+
+    macro set_prop_helper(prop)
+      case prop
+      \{% for k, v in PROPERTY_TYPES %}
+        when \{{k}} then Box.box(-> (val : \{{v}}) { self.\{{k.id}} = val })
+      \{% end %}
+      else
+        raise "Could not determine type for property: #{prop}"
       end
+    end
+
+    macro properties_helper
+      \{{PROPERTY_TYPES.keys}}
     end
 
     macro property_types_helper(prop)
@@ -175,26 +191,26 @@ module PropertyUI
     imgui.next_column
     prop_flags = LibImGui::ImGuiTreeNodeFlags::Leaf | LibImGui::ImGuiTreeNodeFlags::NoTreePushOnOpen | LibImGui::ImGuiTreeNodeFlags::Bullet
     if node_open
-      self.properties.each_with_index(1) do |(prop, callbacks), idx|
+      self.properties.each_with_index(1) do |prop, idx|
         imgui.align_text_to_frame_padding
         imgui.tree_node_ex(prop.to_s, prop_flags, prop.to_s)
         imgui.next_column
         prop_type = self.property_types(prop)
         case prop_type
         when Int32.class
-          int_val = self.get_prop(prop, prop_type)
+          int_val = self.get_prop(prop, Int32)
           int_ptr = pointerof(int_val)
           if imgui.input_int("###{prop}_int", int_ptr, 1, 10)
             self.set_prop(prop, int_ptr.value)
           end
         when Float32.class
-          float_val = self.get_prop(prop, prop_type)
+          float_val = self.get_prop(prop, Float32)
           float_ptr = pointerof(float_val)
           if imgui.input_float("###{prop}_float", float_ptr, 0.1, 1.0, "%.1f")
             self.set_prop(prop, float_ptr.value)
           end
         when SF::Vector2f.class
-          vec2f_val = self.get_prop(prop, prop_type)
+          vec2f_val = self.get_prop(prop, SF::Vector2f)
           fx = vec2f_val.x
           fy = vec2f_val.y
           fx_ptr = pointerof(fx)
@@ -210,7 +226,7 @@ module PropertyUI
             self.set_prop(prop, new_vec)
           end
         when Bool.class
-          bool_val = self.get_prop(prop, prop_type)
+          bool_val = self.get_prop(prop, Bool)
           bool_ptr = pointerof(bool_val)
           if imgui.checkbox("###{prop}_bool", bool_ptr)
             self.set_prop(prop, bool_ptr.value)
