@@ -104,77 +104,28 @@ end
 
 module Properties(*PropertyT)
   macro included
-    property properties : Array(Symbol) = [] of Symbol
 
     {% if !@type.constant :PROPERTY_TYPES %}
       PROPERTY_TYPES = {} of Nil => Nil
     {% end %}
 
-    \{% for klass in PropertyT %}
-      include \{{klass}}
-    \{% end %}
-
-    include PropertyUI
-
-    macro klass_props(klass)
+    macro klass_properties(klass)
       \{% for ivar in klass.resolve.instance_vars %}
         \{% PROPERTY_TYPES[ivar.symbolize] = ivar.type %}
       \{% end %}
     end
 
-    macro init_properties
+    macro register_properties
       \{% for klass in PropertyT %}
-        klass_props(\{{"#{klass}Property".id}})
+        klass_properties(\{{"#{klass}Property".id}})
       \{% end %}
     end
 
-    def properties
-      return @properties unless @properties.empty?
-      init_properties
-      @properties = properties_helper
-    end
+    {% for klass in PropertyT %}
+      include {{klass}}
+    {% end %}
 
-    def property_types(prop)
-      property_types_helper(prop)
-    end
-
-    def get_prop(prop : Symbol, klass : T.class) forall T
-      get_prop_helper(prop).as(T)
-    end
-
-    macro get_prop_helper(prop)
-      case prop
-      \{% for k, v in PROPERTY_TYPES %}
-        when \{{k}} then self.\{{k.id}}\{{(v == Bool ? "?" : "").id}}
-      \{% end %}
-      end
-    end
-
-    def set_prop(prop, value : T) forall T
-      Box(Proc(T, T)).unbox(set_prop_helper(prop)).call(value)
-    end
-
-    macro set_prop_helper(prop)
-      case prop
-      \{% for k, v in PROPERTY_TYPES %}
-        when \{{k}} then Box.box(-> (val : \{{v}}) { self.\{{k.id}} = val })
-      \{% end %}
-      else
-        raise "Could not determine type for property: #{prop}"
-      end
-    end
-
-    macro properties_helper
-      \{{PROPERTY_TYPES.keys}}
-    end
-
-    macro property_types_helper(prop)
-      case prop
-      \{% for k, v in PROPERTY_TYPES %}
-        when \{{k}} then \{{v}}
-      \{% end %}
-      end
-    end
+    include PropertyUI
   end
 end
 
@@ -183,57 +134,69 @@ module PropertyUI
     @imgui ||= context.imgui.as(ImGui)
   end
 
+  def node_flags
+    LibImGui::ImGuiTreeNodeFlags::Leaf | LibImGui::ImGuiTreeNodeFlags::NoTreePushOnOpen | LibImGui::ImGuiTreeNodeFlags::Bullet
+  end
+
+  macro property_nodes(name)
+    {% for k, v in PROPERTY_TYPES %}
+      imgui.align_text_to_frame_padding
+      imgui.tree_node_ex({{k}}.to_s, node_flags, {{k}}.to_s)
+      imgui.next_column
+      val = self.{{k.id}}{{(v == Bool ? "?" : "").id}}
+      prop_input({{k}}, val) do |new_val|
+        self.{{k.id}} = new_val.as({{v}})
+      end
+      imgui.next_column
+    {% end %}
+  end
+
+  def prop_input(prop, val : T, &block) forall T
+    case val
+    when Int32
+      int_val = val.as(Int32)
+      ptr = pointerof(int_val)
+      if imgui.input_int("###{prop}_int", ptr, 1, 10)
+        yield ptr.value
+      end
+    when Float32
+      float_val = val.as(Float32)
+      ptr = pointerof(float_val)
+      if imgui.input_float("###{prop}_float", ptr, 0.1, 1.0, "%.1f")
+        yield ptr.value
+      end
+    when Bool
+      bool_val = val.as(Bool)
+      ptr = pointerof(bool_val)
+      if imgui.checkbox("###{prop}_bool", ptr)
+        yield ptr.value
+      end
+    when SF::Vector2f
+      x = val.x.as(Float32)
+      y = val.y.as(Float32)
+      ptr_x = pointerof(x)
+      ptr_y = pointerof(y)
+      if imgui.input_float("x###{prop}_float", ptr_x, 0.1, 1.0, "%.1f")
+        yield SF.vector2f(ptr_x.value, y)
+      end
+      imgui.next_column
+      imgui.next_column
+      if imgui.input_float("y###{prop}_float", ptr_y, 0.1, 1.0, "%.1f")
+        yield SF.vector2f(x, ptr_y.value)
+      end
+    when Entity
+      yield Shotgun.new
+    end
+  end
+
   def property_tree
-    node_open = imgui.tree_node(self.name, self.name)
+    node_open = imgui.tree_node(name, name)
     imgui.separator
     imgui.columns(2)
     imgui.next_column
     imgui.next_column
-    prop_flags = LibImGui::ImGuiTreeNodeFlags::Leaf | LibImGui::ImGuiTreeNodeFlags::NoTreePushOnOpen | LibImGui::ImGuiTreeNodeFlags::Bullet
     if node_open
-      self.properties.each_with_index(1) do |prop, idx|
-        imgui.align_text_to_frame_padding
-        imgui.tree_node_ex(prop.to_s, prop_flags, prop.to_s)
-        imgui.next_column
-        prop_type = self.property_types(prop)
-        case prop_type
-        when Int32.class
-          int_val = self.get_prop(prop, Int32)
-          int_ptr = pointerof(int_val)
-          if imgui.input_int("###{prop}_int", int_ptr, 1, 10)
-            self.set_prop(prop, int_ptr.value)
-          end
-        when Float32.class
-          float_val = self.get_prop(prop, Float32)
-          float_ptr = pointerof(float_val)
-          if imgui.input_float("###{prop}_float", float_ptr, 0.1, 1.0, "%.1f")
-            self.set_prop(prop, float_ptr.value)
-          end
-        when SF::Vector2f.class
-          vec2f_val = self.get_prop(prop, SF::Vector2f)
-          fx = vec2f_val.x
-          fy = vec2f_val.y
-          fx_ptr = pointerof(fx)
-          fy_ptr = pointerof(fy)
-          if imgui.input_float("x###{prop}_float", fx_ptr, 0.1, 1.0, "%.1f")
-            new_vec = SF.vector2f(fx_ptr.value, fy)
-            self.set_prop(prop, new_vec)
-          end
-          imgui.next_column
-          imgui.next_column
-          if imgui.input_float("y###{prop}_float", fy_ptr, 0.1, 1.0, "%.1f")
-            new_vec = SF.vector2f(fx, fy_ptr.value)
-            self.set_prop(prop, new_vec)
-          end
-        when Bool.class
-          bool_val = self.get_prop(prop, Bool)
-          bool_ptr = pointerof(bool_val)
-          if imgui.checkbox("###{prop}_bool", bool_ptr)
-            self.set_prop(prop, bool_ptr.value)
-          end
-        end
-        imgui.next_column
-      end
+      property_nodes(name)
       imgui.tree_pop
     end
   end
@@ -247,9 +210,12 @@ class Entity < SF::Transformable
   def initialize(**attributes)
     super
     {% for var in @type.instance_vars %}
-      if arg = attributes[:{{var.name.id}}]?
-        self.{{var.name.id}} = arg
+      if arg = attributes[:{{var.id}}]?
+        self.{{var.id}} = arg
       end
+    {% end %}
+    {% if @type.constant :PROPERTY_TYPES %}
+      register_properties
     {% end %}
   end
 
@@ -721,12 +687,12 @@ class Game
         context:      self,
         hp:           80,
         rotation:     90.0f32,
-        position:     {1000.0, 500.0},
+        position:     {500.0, 500.0},
         velocity:     {0.0f32, 0.0f32},
         acceleration: {0.0f32, 0.0f32},
         drawables:    {
           :body => SF::CircleShape.new.tap { |c|
-            c.position = {1000.0, 500.0}
+            c.position = {500.0, 500.0}
             c.radius = 25.0
             c.origin = {25.0, 25.0}
             c.fill_color = SF::Color::Black
@@ -767,7 +733,7 @@ class Game
       when SF::Event::MouseButtonPressed
         player.drawables[:current_sprite].as(Animation).visible = false if player.drawables[:current_sprite].is_a?(Animation)
         player.drawables[:current_sprite] = shoot_animation.tap { |a| a.visible = true }
-        Shotgun.new.primary_attack
+        # Shotgun.new.primary_attack
         # spawn_ball if event.button == SF::Mouse::Left && !show_debug_menu?
       end
     end
@@ -874,12 +840,17 @@ class Game
 
   def animations
     puts "loading animations..."
-    @animations = AnimationData.init(player, sprite_sheets).from_json(File.read("data/animations/player.json")).animations.as(Array(Animation))
+    @animations = AnimationData.init(player, sprite_sheets)
+      .from_json(File.read("data/animations/player.json"))
+      .animations
+      .as(Array(Animation))
   end
 
   def sprite_sheets
     puts "loading sprite_sheets..."
-    @sprite_sheets ||= SpriteSheetData.from_json(File.read("data/sprite_sheets/player.json")).sprite_sheets.as(Array(SpriteSheet))
+    @sprite_sheets ||= SpriteSheetData.from_json(File.read("data/sprite_sheets/player.json"))
+      .sprite_sheets
+      .as(Array(SpriteSheet))
   end
 
   def idle_animation
