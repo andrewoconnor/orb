@@ -94,7 +94,8 @@ end
 
 module PrimaryWeapon
   macro included
-    property primary_weapon : Weapon = Shotgun.new
+    property primary_weapon : Weapon = Shotgun.new # Array(Weapon) = [Shotgun.new] of Weapon
+    # property selected_primary_weapon : Int32 = 0
   end
 end
 
@@ -111,7 +112,7 @@ module Properties(*PropertyT)
 
     macro klass_properties(klass)
       \{% for ivar in klass.resolve.instance_vars %}
-        \{% PROPERTY_TYPES[ivar.symbolize] = ivar.type %}
+        \{% PROPERTY_TYPES[ivar.symbolize] = ivar.type unless ivar.stringify.starts_with?("selected") %}
       \{% end %}
     end
 
@@ -151,7 +152,7 @@ module PropertyUI
     {% end %}
   end
 
-  def prop_input(prop, val : T, &block) forall T
+  def prop_input(prop, val : T, opts = NamedTuple.new, &block) forall T
     case val
     when Int32
       int_val = val.as(Int32)
@@ -184,8 +185,13 @@ module PropertyUI
       if imgui.input_float("y###{prop}_float", ptr_y, 0.1, 1.0, "%.1f")
         yield SF.vector2f(x, ptr_y.value)
       end
-    when Entity
-      yield Shotgun.new
+    when Array(Entity)
+      current_item = opts.fetch(:combo_current_item, 0)
+      ptr = pointerof(current_item)
+      combo_items = opts.fetch(:combo_items, ["Handgun", "Rifle", "Shotgun"])
+      if imgui.combo("###{prop}_entity", ptr, combo_items)
+        yield Shotgun.new # ptr.value
+      end
     end
   end
 
@@ -266,6 +272,25 @@ class Shotgun < Gun
         velocity: {0.0f32, 0.0f32},
       })
     end
+  end
+
+  def melee_attack
+  end
+
+  def reload
+    while bullets_in_mag < mag_capacity
+      @bullets_in_mag += 1
+    end
+  end
+end
+
+class Rifle < Gun
+  def primary_attack
+    Bullet.new(**{
+      rotation: 90.0f32,
+      position: {1000.0, 500.0},
+      velocity: {0.0f32, 0.0f32},
+    })
   end
 
   def melee_attack
@@ -410,15 +435,15 @@ class SpriteSheet
 
   def entries
     raise "Directory does not exist: #{dir}" unless Dir.exists?(dir)
-    @entries ||= Dir.new(dir).entries.as(Array(String))
+    @entries ||= Dir.new(dir).entries.reject { |e| [".", ".."].includes?(e) }.as(Array(String))
   end
 
   def num_textures
-    @num_textures ||= ((entries.try(&.size) || 2) - 2)
+    @num_textures ||= entries.size
   end
 
   def random_file
-    @random_file ||= entries.find { |f| ![".", ".."].includes?(f) } if entries
+    @random_file ||= entries.sample if entries
   end
 
   def file_attrs
@@ -737,11 +762,6 @@ class Game
         # spawn_ball if event.button == SF::Mouse::Left && !show_debug_menu?
       end
     end
-  end
-
-  def files(dir : String)
-    raise "Directory does not exist: #{dir}" unless Dir.exists?(dir)
-    Dir.new(dir).entries.as(Array(String)).reject { |f| [".", ".."].includes?(f) }
   end
 
   module AnimationConverter
