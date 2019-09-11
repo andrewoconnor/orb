@@ -94,8 +94,8 @@ end
 
 module PrimaryWeapon
   macro included
-    property primary_weapon : Weapon = Shotgun.new # Array(Weapon) = [Shotgun.new] of Weapon
-    # property selected_primary_weapon : Int32 = 0
+    property primary_weapons : Array(Weapon) = [Shotgun.new, Rifle.new] of Weapon
+    property selected_primary_weapon : Int32 = 0
   end
 end
 
@@ -112,7 +112,7 @@ module Properties(*PropertyT)
 
     macro klass_properties(klass)
       \{% for ivar in klass.resolve.instance_vars %}
-        \{% PROPERTY_TYPES[ivar.symbolize] = ivar.type unless ivar.stringify.starts_with?("selected") %}
+        \{% PROPERTY_TYPES[ivar.symbolize] = ivar.type unless ivar.stringify.starts_with?("selected_") %}
       \{% end %}
     end
 
@@ -145,7 +145,12 @@ module PropertyUI
       imgui.tree_node_ex({{k}}.to_s, node_flags, {{k}}.to_s)
       imgui.next_column
       val = self.{{k.id}}{{(v == Bool ? "?" : "").id}}
-      prop_input({{k}}, val) do |new_val|
+      opts = { combo_selected_item: self.{{(v.stringify.includes?("Array") ? "selected_#{k[0..-2].id}" : "id").id}} }
+      prop_input({{k}}, val, opts) do |new_val|
+        if val.is_a?(Array)
+          {% k = "selected_primary_weapon" %}
+          {% v = Int32 %}
+        end
         self.{{k.id}} = new_val.as({{v}})
       end
       imgui.next_column
@@ -153,6 +158,9 @@ module PropertyUI
   end
 
   def prop_input(prop, val : T, opts = NamedTuple.new, &block) forall T
+    if val.is_a?(Array) && val.all?(&.is_a?(Entity))
+      val = val.map { |v| v.as(Entity) }
+    end
     case val
     when Int32
       int_val = val.as(Int32)
@@ -186,11 +194,12 @@ module PropertyUI
         yield SF.vector2f(x, ptr_y.value)
       end
     when Array(Entity)
-      current_item = opts.fetch(:combo_current_item, 0)
+      current_item = opts.fetch(:combo_selected_item, 0)
       ptr = pointerof(current_item)
-      combo_items = opts.fetch(:combo_items, ["Handgun", "Rifle", "Shotgun"])
+      combo_items = val.map(&.name)
       if imgui.combo("###{prop}_entity", ptr, combo_items)
-        yield Shotgun.new # ptr.value
+        # yield [Shotgun.new.as(Weapon), Rifle.new.as(Weapon)] # .as(T) # ptr.value
+        yield ptr.value
       end
     end
   end
@@ -209,8 +218,8 @@ module PropertyUI
 end
 
 class Entity < SF::Transformable
-  property id : Int32?
-  property name : String?
+  property id : Int32 = 0
+  # property name : String
   property context : Game
 
   def initialize(**attributes)
@@ -226,7 +235,7 @@ class Entity < SF::Transformable
   end
 
   def name
-    @name ||= "#{self.class}#{id}"
+    "#{self.class}#{id}"
   end
 end
 
@@ -235,7 +244,7 @@ class Bullet < Entity
 end
 
 abstract class Weapon < Entity
-  property player : Player
+  # property player : Player
 
   abstract def primary_attack
   abstract def melee_attack
