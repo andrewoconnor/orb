@@ -198,7 +198,6 @@ module PropertyUI
       ptr = pointerof(current_item)
       combo_items = val.map(&.name)
       if imgui.combo("###{prop}_entity", ptr, combo_items)
-        # yield [Shotgun.new.as(Weapon), Rifle.new.as(Weapon)] # .as(T) # ptr.value
         yield ptr.value
       end
     end
