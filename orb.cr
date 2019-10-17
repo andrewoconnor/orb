@@ -148,10 +148,10 @@ module PropertyUI
       opts = { combo_selected_item: self.{{(v.stringify.includes?("Array") ? "selected_#{k[0..-2].id}" : "id").id}} }
       prop_input({{k}}, val, opts) do |new_val|
         if val.is_a?(Array)
-          {% k = "selected_primary_weapon" %}
-          {% v = Int32 %}
+          self.{{(v.stringify.includes?("Array") ? "selected_#{k[0..-2].id}" : "id").id}} = new_val.as(Int32)
+        else
+          self.{{k.id}} = new_val.as({{v}})
         end
-        self.{{k.id}} = new_val.as({{v}})
       end
       imgui.next_column
     {% end %}
