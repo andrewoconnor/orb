@@ -3,12 +3,43 @@ require "json"
 require "chipmunk/chipmunk_crsfml"
 require "../crimgui/src/crimgui/imgui"
 
+enum GameState
+  Intro
+  Loading
+  MainMenu
+  Active
+  Paused
+end
+
+@[Flags]
+enum EntityState
+  Idle
+  Move
+  Melee
+  Shoot
+  Dead
+end
+
+module States
+  macro included
+    property states : EntityState = EntityState::Idle
+  end
+end
+
+class StatesProperty
+  include States
+end
+
 module Health
   macro included
     property hp : Int32 = 100
     property full_hp : Int32 = 100
     property max_hp : Int32 = 100
     property? invulnerable : Bool = false
+
+    def dead?
+      invulnerable? ? false : hp <= 0
+    end
   end
 end
 
@@ -96,6 +127,29 @@ module PrimaryWeapon
   macro included
     property primary_weapons : Array(Weapon) = [Shotgun.new, Rifle.new] of Weapon
     property selected_primary_weapon : Int32 = 0
+
+    def selected_primary_weapon=(selected : Int32)
+      @selected_primary_weapon = selected
+      case selected
+      when 0 # shotgun
+        drawables[:current_sprite] = context.animations[21].as(Animation).tap { |a| a.visible = true }
+        drawables[:default_sprite] = context.animations[21].as(Animation)
+        context.idle_animation = context.animations[21].as(Animation)
+        context.melee_animation = context.animations[22].as(Animation)
+        context.move_animation = context.animations[23].as(Animation)
+        context.reload_animation = context.animations[24].as(Animation)
+        context.shoot_animation = context.animations[25].as(Animation)
+      when 1 # rifle
+        drawables[:current_sprite] = context.animations[16].as(Animation).tap { |a| a.visible = true }
+        drawables[:default_sprite] = context.animations[16].as(Animation)
+        context.idle_animation = context.animations[16].as(Animation)
+        context.melee_animation = context.animations[17].as(Animation)
+        context.move_animation = context.animations[18].as(Animation)
+        context.reload_animation = context.animations[19].as(Animation)
+        context.shoot_animation = context.animations[20].as(Animation)
+      end
+      selected
+    end
   end
 end
 
@@ -311,6 +365,59 @@ class Rifle < Gun
   end
 end
 
+abstract class OrbProcess
+  property? finished : Bool = false
+
+  abstract def update(dt)
+end
+
+# does nothing
+class SleepProcess < OrbProcess
+  property timer : Float32 = 0.0f32
+  property duration : Float32
+
+  def initialize(@duration)
+  end
+
+  def update(dt)
+    @timer += dt
+    @finished = true if timer >= duration
+  end
+end
+
+# single frame process
+class GenericProcess < OrbProcess
+  def on_update(&block)
+    @on_update_callback = block
+  end
+
+  def update(dt)
+    if callback = @on_update_callback
+      callback.call
+    end
+    @finished = true
+  end
+end
+
+class ProcessBuffer
+  property buffer : Deque(OrbProcess)?
+
+  def buffer
+    @buffer ||= Deque(OrbProcess).new
+  end
+
+  def <<(process)
+    buffer << process
+  end
+
+  def update(dt)
+    if process = buffer.first?
+      process.update(dt)
+      buffer.pop if process.finished?
+    end
+  end
+end
+
 abstract class Behavior(Entity)
   getter entity
 
@@ -481,19 +588,23 @@ end
 class Animation
   include SF::Drawable
 
-  property sprite : SF::Sprite
+  property sprite : SF::Sprite?
   property entity : Entity
   property sprite_sheet : SpriteSheet
   property duration : Float32
   property origin : (SF::Vector2f | Tuple(Float32, Float32)) = SF.vector2f(0.0, 0.0)
   property? loop : Bool = false
+  property? interruptable : Bool = false
   property t : Float32 = 0.0f32
   property curr_frame : Int32 = 0
   property? paused : Bool = false
   property? visible : Bool = false
 
   def initialize(@entity, @sprite_sheet, @duration, @origin : SF::Vector2f | Tuple(Float32, Float32), @loop)
-    @sprite = SF::Sprite.new(texture, texture_rect).tap do |s|
+  end
+
+  def sprite
+    @sprite ||= SF::Sprite.new(texture, texture_rect).tap do |s|
       s.position = entity.position
       s.rotation = entity.rotation
       s.origin = origin
@@ -531,7 +642,7 @@ class Animation
   def restart
     @t = 0.0f32
     @curr_frame = 0
-    @sprite.texture_rect = texture_rect
+    sprite.texture_rect = texture_rect
   end
 
   def update(dt)
@@ -556,7 +667,7 @@ class Animation
     else
       @curr_frame = curr_frame + 1
     end
-    @sprite.tap { |s|
+    sprite.tap { |s|
       s.texture_rect = texture_rect
       s.position = entity.position
       s.rotation = entity.rotation
@@ -573,6 +684,11 @@ class Game
   property t : Float32 = 0.0f32
   property accumulator : Float32 = 0.0f32
   property? show_debug_menu : Bool = false
+  property idle_animation
+  property melee_animation
+  property move_animation
+  property reload_animation
+  property shoot_animation
 
   def mode
     @mode ||= SF::VideoMode.new(1920, 1080)
@@ -867,17 +983,17 @@ class Game
   end
 
   def animations
-    puts "loading animations..."
-    @animations = AnimationData.init(player, sprite_sheets)
+    @animations ||= AnimationData.init(player, sprite_sheets)
       .from_json(File.read("data/animations/player.json"))
       .animations
+      .tap { |a| puts "loading animations..." }
       .as(Array(Animation))
   end
 
   def sprite_sheets
-    puts "loading sprite_sheets..."
     @sprite_sheets ||= SpriteSheetData.from_json(File.read("data/sprite_sheets/player.json"))
       .sprite_sheets
+      .tap { |s| puts "loading sprite_sheets..." }
       .as(Array(SpriteSheet))
   end
 

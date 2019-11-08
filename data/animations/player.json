@@ -262,7 +262,7 @@
         "name": "player_rifle_melee",
         "duration": 2.0,
         "origin": [100.0, 120.0],
-        "loop": true
+        "loop": false
       },
       "relationships": {
         "sprite_sheet": {
@@ -292,7 +292,7 @@
         "name": "player_rifle_reload",
         "duration": 2.0,
         "origin": [110.0, 120.0],
-        "loop": true
+        "loop": false
       },
       "relationships": {
         "sprite_sheet": {
@@ -305,9 +305,9 @@
       "id": "21",
       "attributes": {
         "name": "player_rifle_shoot",
-        "duration": 2.0,
+        "duration": 0.20,
         "origin": [100.0, 120.0],
-        "loop": true
+        "loop": false
       },
       "relationships": {
         "sprite_sheet": {
@@ -380,7 +380,7 @@
       "id": "26",
       "attributes": {
         "name": "player_shotgun_shoot",
-        "duration": 2.0,
+        "duration": 0.25,
         "origin": [100.0, 120.0],
         "loop": true
       },
