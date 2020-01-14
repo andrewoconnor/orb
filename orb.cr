@@ -254,6 +254,9 @@ module PropertyUI
       if imgui.combo("###{prop}_entity", ptr, combo_items)
         yield ptr.value
       end
+      # if imgui.list_box("###{prop}_entity", ptr, combo_items)
+      #   yield ptr.value
+      # end
     end
   end
 
@@ -267,6 +270,7 @@ module PropertyUI
       property_nodes(name)
       imgui.tree_pop
     end
+    imgui.columns(1)
   end
 end
 
@@ -413,7 +417,7 @@ class ProcessBuffer
   def update(dt)
     if process = buffer.first?
       process.update(dt)
-      buffer.pop if process.finished?
+      buffer.shift if process.finished?
     end
   end
 end
@@ -523,15 +527,16 @@ class Player < Entity
 end
 
 class SpriteSheet
+  property id : Int32
   property dir : String
-  property files : Array(String)?
-  property texture : SF::Texture?
-  property num_textures : Int32?
-  property random_file : String?
-  property file_attrs : Hash(Symbol, String)?
-  property frame_lengths : Array(Float32)?
 
-  def initialize(@dir : String)
+  # property files : Array(String)?
+  # property texture : SF::Texture
+  # property num_textures : Int32
+  # property random_file : String?
+  # property file_attrs : Hash(Symbol, String)?
+
+  def initialize(@id : Int32, @dir : String)
   end
 
   def texture_size
@@ -554,34 +559,35 @@ class SpriteSheet
   end
 
   def num_textures
-    @num_textures ||= entries.size
+    @num_textures ||= entries.size.as(Int32)
   end
 
-  def random_file
-    @random_file ||= entries.sample if entries
+  def texture_prefix
+    @texture_prefix ||= File.basename(entries.first).split('_')[0...-1].join('_').as(String)
   end
 
-  def file_attrs
-    @file_attrs ||= {
-      :prefix    => File.basename(random_file.not_nil!).split('_')[0...-1].join('_'),
-      :extension => File.extname(random_file.not_nil!),
-    }
+  def texture_extension
+    @texture_extension ||= File.extname(entries.first).as(String)
+  end
+
+  def texture_path(id)
+    "#{texture_prefix}_#{id}#{texture_extension}"
   end
 
   def files
-    @files ||= (0...num_textures).map_with_index do |i|
-      "#{dir}#{file_attrs[:prefix]}_#{i}#{file_attrs[:extension]}"
+    @files ||= (0...num_textures).map { |i| File.join(dir, texture_path(i)) }.as(Array(String))
+  end
+
+  def render_texture
+    SF::RenderTexture.new(sheet_size.x, sheet_size.y, false).tap do |sheet|
+      sheet.clear
+      files.each_with_index { |file, i| sheet.draw(sprite(file, texture_size.x * i)) }
+      sheet.display
     end
   end
 
   def texture
-    @texture ||= SF::RenderTexture.new(sheet_size.x, sheet_size.y, false).tap { |sheet|
-      sheet.clear
-      files.each_with_index { |file, i|
-        sheet.draw(sprite(file, texture_size.x * i))
-      }
-      sheet.display
-    }.texture
+    @texture ||= render_texture.texture.as(SF::Texture)
   end
 end
 
@@ -689,6 +695,7 @@ class Game
   property move_animation
   property reload_animation
   property shoot_animation
+  property anim_frame : Int32 = 1
 
   def mode
     @mode ||= SF::VideoMode.new(1920, 1080)
@@ -704,10 +711,7 @@ class Game
   end
 
   def cursor
-    @cursor ||= SF::Cursor.new
-      .tap { |c|
-        c.load_from_system(SF::Cursor::Cross)
-      }.as(SF::Cursor)
+    @cursor ||= SF::Cursor.from_system(SF::Cursor::Cross)
   end
 
   def render_states
@@ -890,11 +894,9 @@ class Game
 
   module AnimationConverter
     @@entity = Entity.new
-    @@sprite_sheets = [] of SpriteSheet
+    @@sprite_sheets = {} of Int32 => SpriteSheet
 
-    def self.init(entity : Entity, sheets : Array(SpriteSheet))
-      @@entity = entity
-      @@sprite_sheets = sheets
+    def self.init(@@entity : Entity, @@sprite_sheets : Hash(Int32, SpriteSheet))
       self
     end
 
@@ -904,45 +906,50 @@ class Game
           duration = 0.5f32
           origin = {100.0f32, 100.0f32}
           loop = false
-          pull.read_begin_object # animation
-          pull.read_object_key
-          pull.read_string
-          pull.read_object_key
-          pull.read_string
-          pull.read_object_key
-          pull.read_begin_object # attributes
-          pull.read_object_key
-          name = pull.read_string
-          pull.read_object_key
-          duration = pull.read_float.to_f32
-          pull.read_object_key
-          pull.read_array do
-            origin = {pull.read_float.to_f32, pull.read_float.to_f32}
+          pull.read_object do |anim_key|
+            case anim_key
+            when "attributes"
+              pull.read_object do |attr_key|
+                case attr_key
+                when "name"
+                  name = pull.read_string
+                when "duration"
+                  duration = pull.read_float.to_f32
+                when "origin"
+                  pull.read_array do
+                    origin = {pull.read_float.to_f32, pull.read_float.to_f32}
+                  end
+                when "loop"
+                  loop = pull.read_bool
+                end
+              end
+            when "relationships"
+              pull.read_object do |rel_key|
+                if rel_key == "sprite_sheet"
+                  pull.read_object do |sheet_key|
+                    if sheet_key == "data"
+                      pull.read_object do |data_key|
+                        if data_key == "id"
+                          sheet_id = pull.read_string.to_i
+                          if @@sprite_sheets[sheet_id]?
+                            animations << Animation.new(
+                              @@entity,
+                              @@sprite_sheets[sheet_id],
+                              duration,
+                              origin,
+                              loop
+                            )
+                          else
+                            raise "Failed to find sprite sheet: #{sheet_id}"
+                          end
+                        end
+                      end
+                    end
+                  end
+                end
+              end
+            end
           end
-          pull.read_object_key
-          loop = pull.read_bool
-          pull.read_end_object # end attributes
-          pull.read_object_key
-          pull.read_begin_object # relationships
-          pull.read_object_key
-          pull.read_begin_object # sprite sheet
-          pull.read_object_key
-          pull.read_begin_object # data
-          pull.read_object_key
-          sprite_sheet = @@sprite_sheets[pull.read_string.to_i - 1]
-          pull.read_object_key
-          pull.read_string
-          pull.read_end_object # end data
-          pull.read_end_object # end sprite sheet
-          pull.read_end_object # end relationships
-          pull.read_end_object # end amimation
-          animations << Animation.new(
-            @@entity,
-            sprite_sheet,
-            duration,
-            origin,
-            loop
-          )
         end
       end
     end
@@ -951,23 +958,35 @@ class Game
   class AnimationData
     include JSON::Serializable
 
-    @[JSON::Field(key: "data", converter: Game::AnimationConverter.init(@@entity.not_nil!, @@sprite_sheets.not_nil!))]
-    property animations : Array(Animation)?
+    @@entity = Entity.new
+    @@sprite_sheets = {} of Int32 => SpriteSheet
 
-    def self.init(entity : Entity, sprite_sheets : Array(SpriteSheet))
-      @@entity = entity
-      @@sprite_sheets = sprite_sheets
+    @[JSON::Field(key: "data", converter: Game::AnimationConverter.init(@@entity, @@sprite_sheets))]
+    property animations : Array(Animation)
+
+    def self.init(@@entity : Entity, @@sprite_sheets : Hash(Int32, SpriteSheet))
       self
     end
   end
 
   module SpriteSheetConverter
     def self.from_json(pull : JSON::PullParser)
-      ([] of SpriteSheet).tap do |sprite_sheets|
+      ({} of Int32 => SpriteSheet).tap do |sprite_sheets|
         pull.read_array do
-          pull.on_key("attributes") do
-            pull.on_key("path") do
-              sprite_sheets << SpriteSheet.new(pull.read_string)
+          sheet_id = 0
+          pull.read_object do |sheet_key|
+            case sheet_key
+            when "id"
+              sheet_id = pull.read_string.to_i
+            when "attributes"
+              pull.read_object do |attr_key|
+                if attr_key == "path"
+                  pull.read_string.tap do |path|
+                    puts path
+                    sprite_sheets[sheet_id] = SpriteSheet.new(sheet_id, path)
+                  end
+                end
+              end
             end
           end
         end
@@ -979,7 +998,7 @@ class Game
     include JSON::Serializable
 
     @[JSON::Field(key: "data", converter: Game::SpriteSheetConverter)]
-    property sprite_sheets : Array(SpriteSheet)
+    property sprite_sheets : Hash(Int32, SpriteSheet)
   end
 
   def animations
@@ -994,7 +1013,7 @@ class Game
     @sprite_sheets ||= SpriteSheetData.from_json(File.read("data/sprite_sheets/player.json"))
       .sprite_sheets
       .tap { |s| puts "loading sprite_sheets..." }
-      .as(Array(SpriteSheet))
+      .as(Hash(Int32, SpriteSheet))
   end
 
   def idle_animation
@@ -1017,6 +1036,14 @@ class Game
     @shoot_animation ||= animations[12].as(Animation)
   end
 
+  def imgui_texture0
+    @imgui_texture0 ||= SF::Texture.from_file("/Users/ruro/src/git/orb/assets/textures/player/shotgun/idle/survivor-idle_shotgun_0.png")
+  end
+
+  def imgui_texture1
+    @imgui_texture1 ||= SF::Texture.from_file("/Users/ruro/src/git/orb/assets/textures/player/shotgun/melee/survivor-melee_shotgun_8.png")
+  end
+
   def debug_menu
     imgui.set_next_window_size(ImVec2.new(430, 450), LibImGui::ImGuiCond::FirstUseEver)
     if !imgui.begin("Property editor")
@@ -1026,6 +1053,12 @@ class Game
     imgui.push_style_var(LibImGui::ImGuiStyleVar::FramePadding, ImVec2.new(2, 2))
     imgui.align_text_to_frame_padding
     player.property_tree
+    # imgui.draw_line(SF.vector2f(0.0, 0.0), SF.vector2f(50.0, 0.0), SF::Color::White, 5)
+    imgui.draw_texture(imgui_texture0)
+    imgui.draw_texture(imgui_texture1)
+    # imgui.draw_animation(reload_animation)
+
+    imgui.slider_int("slider_int1", pointerof(@anim_frame), 1, 10) unless @anim_frame.nil?
     imgui.pop_style_var
     imgui.end
   end

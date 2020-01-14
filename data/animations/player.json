@@ -260,8 +260,8 @@
       "id": "18",
       "attributes": {
         "name": "player_rifle_melee",
-        "duration": 2.0,
-        "origin": [100.0, 120.0],
+        "duration": 1.0,
+        "origin": [120.0, 200.0],
         "loop": false
       },
       "relationships": {
@@ -335,9 +335,9 @@
       "id": "23",
       "attributes": {
         "name": "player_shotgun_melee",
-        "duration": 2.0,
-        "origin": [100.0, 120.0],
-        "loop": true
+        "duration": 1.0,
+        "origin": [120.0, 200.0],
+        "loop": false
       },
       "relationships": {
         "sprite_sheet": {
@@ -382,7 +382,7 @@
         "name": "player_shotgun_shoot",
         "duration": 0.25,
         "origin": [100.0, 120.0],
-        "loop": true
+        "loop": false
       },
       "relationships": {
         "sprite_sheet": {
