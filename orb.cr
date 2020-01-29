@@ -137,7 +137,7 @@ module PrimaryWeapon
         context.idle_animation = context.animations[21].as(Animation)
         context.melee_animation = context.animations[22].as(Animation)
         context.move_animation = context.animations[23].as(Animation)
-        context.reload_animation = context.animations[24].as(Animation)
+        context.reload_animation = context.reload_animations[:shotgun].as(Animation) # context.animations[24].as(Animation)
         context.shoot_animation = context.animations[25].as(Animation)
       when 1 # rifle
         drawables[:current_sprite] = context.animations[16].as(Animation).tap { |a| a.visible = true }
@@ -145,7 +145,7 @@ module PrimaryWeapon
         context.idle_animation = context.animations[16].as(Animation)
         context.melee_animation = context.animations[17].as(Animation)
         context.move_animation = context.animations[18].as(Animation)
-        context.reload_animation = context.animations[19].as(Animation)
+        context.reload_animation = context.reload_animations[:rifle].as(Animation) # context.animations[19].as(Animation)
         context.shoot_animation = context.animations[20].as(Animation)
       end
       selected
@@ -437,7 +437,7 @@ class FaceMouse(Entity) < Behavior(Entity)
   end
 
   def window
-    context.window.not_nil!
+    context.window
   end
 
   def body
@@ -594,7 +594,8 @@ end
 class Animation
   include SF::Drawable
 
-  property sprite : SF::Sprite?
+  property id : Int32
+  # property sprite : SF::Sprite?
   property entity : Entity
   property sprite_sheet : SpriteSheet
   property duration : Float32
@@ -606,19 +607,19 @@ class Animation
   property? paused : Bool = false
   property? visible : Bool = false
 
-  def initialize(@entity, @sprite_sheet, @duration, @origin : SF::Vector2f | Tuple(Float32, Float32), @loop)
+  def initialize(@id, @entity, @sprite_sheet, @duration, @origin : SF::Vector2f | Tuple(Float32, Float32), @loop)
   end
 
   def sprite
-    @sprite ||= SF::Sprite.new(texture, texture_rect).tap do |s|
+    @sprite ||= SF::Sprite.new(texture, texture_rect).tap { |s|
       s.position = entity.position
       s.rotation = entity.rotation
       s.origin = origin
-    end
+    }.as(SF::Sprite)
   end
 
   def num_frames
-    @num_frames ||= (sprite_sheet.files.size).as(Int32)
+    @num_frames ||= (sprite_sheet.num_textures).as(Int32)
   end
 
   def frame_length
@@ -903,11 +904,14 @@ class Game
     def self.from_json(pull : JSON::PullParser)
       ([] of Animation).tap do |animations|
         pull.read_array do
+          anim_id = 0
           duration = 0.5f32
           origin = {100.0f32, 100.0f32}
           loop = false
           pull.read_object do |anim_key|
             case anim_key
+            when "id"
+              anim_id = pull.read_string.to_i
             when "attributes"
               pull.read_object do |attr_key|
                 case attr_key
@@ -933,6 +937,7 @@ class Game
                           sheet_id = pull.read_string.to_i
                           if @@sprite_sheets[sheet_id]?
                             animations << Animation.new(
+                              anim_id,
                               @@entity,
                               @@sprite_sheets[sheet_id],
                               duration,
@@ -1028,8 +1033,16 @@ class Game
     @move_animation ||= animations[10].as(Animation)
   end
 
+  def reload_animations
+    @reload_animations ||= {
+      pistol:  animations[11].as(Animation),
+      shotgun: animations[24].as(Animation),
+      rifle:   animations[19].as(Animation),
+    }
+  end
+
   def reload_animation
-    @reload_animation ||= animations[11].as(Animation)
+    @reload_animation ||= reload_animations[:pistol].as(Animation) # animations[11].as(Animation)
   end
 
   def shoot_animation
@@ -1054,11 +1067,9 @@ class Game
     imgui.align_text_to_frame_padding
     player.property_tree
     # imgui.draw_line(SF.vector2f(0.0, 0.0), SF.vector2f(50.0, 0.0), SF::Color::White, 5)
-    imgui.draw_texture(imgui_texture0)
-    imgui.draw_texture(imgui_texture1)
-    # imgui.draw_animation(reload_animation)
-
-    imgui.slider_int("slider_int1", pointerof(@anim_frame), 1, 10) unless @anim_frame.nil?
+    # imgui.draw_texture(imgui_texture0)
+    # imgui.draw_texture(imgui_texture1)
+    imgui.draw_animation(reload_animation)
     imgui.pop_style_var
     imgui.end
   end
@@ -1106,9 +1117,10 @@ class Game
 
       imgui.new_frame
       debug_menu if show_debug_menu?
-      imgui.show_demo_window
+      # imgui.show_demo_window
       imgui.end_frame
       imgui.render
+
       window.draw(imgui)
 
       window.display

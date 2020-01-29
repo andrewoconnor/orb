@@ -367,11 +367,11 @@
         "name": "player_shotgun_reload",
         "duration": 2.0,
         "origin": [110.0, 120.0],
-        "loop": true
+        "loop": false
       },
       "relationships": {
         "sprite_sheet": {
-          "data": {"id": "3", "type": "sprite_sheets"}
+          "data": {"id": "25", "type": "sprite_sheets"}
         }
       }
     },
