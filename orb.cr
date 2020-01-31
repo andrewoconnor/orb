@@ -29,10 +29,6 @@ module States
   end
 end
 
-class StatesProperty
-  include States
-end
-
 module Health
   macro included
     property hp : Int32 = 100
@@ -44,10 +40,6 @@ module Health
       invulnerable? ? false : hp <= 0
     end
   end
-end
-
-class HealthProperty
-  include Health
 end
 
 module Position
@@ -68,10 +60,6 @@ module Position
   end
 end
 
-class PositionProperty
-  include Position
-end
-
 module Rotation
   macro included
     property rotation : Float32 = 0.0f32
@@ -84,10 +72,6 @@ module Rotation
       super
     end
   end
-end
-
-class RotationProperty
-  include Rotation
 end
 
 module Velocity
@@ -104,10 +88,6 @@ module Velocity
   end
 end
 
-class VelocityProperty
-  include Velocity
-end
-
 module Acceleration
   macro included
     property acceleration : SF::Vector2f = SF.vector2f(0.0, 0.0)
@@ -120,10 +100,6 @@ module Acceleration
       @acceleration = acceleration
     end
   end
-end
-
-class AccelerationProperty
-  include Acceleration
 end
 
 module PrimaryWeapon
@@ -157,8 +133,10 @@ module PrimaryWeapon
   end
 end
 
-class PrimaryWeaponProperty
-  include PrimaryWeapon
+macro define_property_class(klass)
+  class {{ "#{klass}Property".id }}
+    include {{klass}}
+  end
 end
 
 module Properties(*PropertyT)
@@ -181,6 +159,7 @@ module Properties(*PropertyT)
     end
 
     {% for klass in PropertyT %}
+      define_property_class({{klass}})
       include {{klass}}
     {% end %}
 
