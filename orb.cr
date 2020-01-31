@@ -20,6 +20,9 @@ enum EntityState
   Dead
 end
 
+annotation ImguiIgnore
+end
+
 module States
   macro included
     property states : EntityState = EntityState::Idle
@@ -126,11 +129,12 @@ end
 module PrimaryWeapon
   macro included
     property primary_weapons : Array(Weapon) = [Shotgun.new, Rifle.new] of Weapon
-    property selected_primary_weapon : Int32 = 0
+    @[ImguiIgnore]
+    property primary_weapon : Int32 = 0
 
-    def selected_primary_weapon=(selected : Int32)
-      @selected_primary_weapon = selected
-      case selected
+    def primary_weapon=(weapon : Int32)
+      @primary_weapon = weapon
+      case weapon
       when 0 # shotgun
         drawables[:current_sprite] = context.animations[21].as(Animation).tap { |a| a.visible = true }
         drawables[:default_sprite] = context.animations[21].as(Animation)
@@ -148,7 +152,7 @@ module PrimaryWeapon
         context.reload_animation = context.reload_animations[:rifle].as(Animation) # context.animations[19].as(Animation)
         context.shoot_animation = context.animations[20].as(Animation)
       end
-      selected
+      weapon
     end
   end
 end
@@ -160,13 +164,13 @@ end
 module Properties(*PropertyT)
   macro included
 
-    {% if !@type.constant :PROPERTY_TYPES %}
+    {% if !@type.has_constant?(:PROPERTY_TYPES) %}
       PROPERTY_TYPES = {} of Nil => Nil
     {% end %}
 
     macro klass_properties(klass)
       \{% for ivar in klass.resolve.instance_vars %}
-        \{% PROPERTY_TYPES[ivar.symbolize] = ivar.type unless ivar.stringify.starts_with?("selected_") %}
+        \{% PROPERTY_TYPES[ivar.symbolize] = ivar.type unless ivar.annotation(ImguiIgnore) %}
       \{% end %}
     end
 
@@ -199,10 +203,10 @@ module PropertyUI
       imgui.tree_node_ex({{k}}.to_s, node_flags, {{k}}.to_s)
       imgui.next_column
       val = self.{{k.id}}{{(v == Bool ? "?" : "").id}}
-      opts = { combo_selected_item: self.{{(v.stringify.includes?("Array") ? "selected_#{k[0..-2].id}" : "id").id}} }
+      opts = { combo_selected_item: self.{{(v.stringify.includes?("Array") ? "#{k[0..-2].id}" : "id").id}} }
       prop_input({{k}}, val, opts) do |new_val|
         if val.is_a?(Array)
-          self.{{(v.stringify.includes?("Array") ? "selected_#{k[0..-2].id}" : "id").id}} = new_val.as(Int32)
+          self.{{(v.stringify.includes?("Array") ? "#{k[0..-2].id}" : "id").id}} = new_val.as(Int32)
         else
           self.{{k.id}} = new_val.as({{v}})
         end
@@ -286,7 +290,7 @@ class Entity < SF::Transformable
         self.{{var.id}} = arg
       end
     {% end %}
-    {% if @type.constant :PROPERTY_TYPES %}
+    {% if @type.has_constant?(:PROPERTY_TYPES) %}
       register_properties
     {% end %}
   end
@@ -529,12 +533,6 @@ end
 class SpriteSheet
   property id : Int32
   property dir : String
-
-  # property files : Array(String)?
-  # property texture : SF::Texture
-  # property num_textures : Int32
-  # property random_file : String?
-  # property file_attrs : Hash(Symbol, String)?
 
   def initialize(@id : Int32, @dir : String)
   end
