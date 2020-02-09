@@ -20,6 +20,12 @@ enum EntityState
   Dead
 end
 
+@[Flags]
+enum ItemSlotType
+  LeftHand
+  RightHand
+end
+
 annotation ImguiIgnore
 end
 
@@ -102,33 +108,52 @@ module Acceleration
   end
 end
 
-module PrimaryWeapon
+module Inventory
   macro included
-    property primary_weapons : Array(Weapon) = [Shotgun.new, Rifle.new] of Weapon
-    @[ImguiIgnore]
-    property primary_weapon : Int32 = 0
+    property inventory : Hash(Int32, Item) = {} of Int32 => Item
+  end
+end
 
-    def primary_weapon=(weapon : Int32)
-      @primary_weapon = weapon
-      case weapon
-      when 0 # shotgun
-        drawables[:current_sprite] = context.animations[21].as(Animation).tap { |a| a.visible = true }
-        drawables[:default_sprite] = context.animations[21].as(Animation)
-        context.idle_animation = context.animations[21].as(Animation)
-        context.melee_animation = context.animations[22].as(Animation)
-        context.move_animation = context.animations[23].as(Animation)
-        context.reload_animation = context.reload_animations[:shotgun].as(Animation) # context.animations[24].as(Animation)
-        context.shoot_animation = context.animations[25].as(Animation)
-      when 1 # rifle
-        drawables[:current_sprite] = context.animations[16].as(Animation).tap { |a| a.visible = true }
-        drawables[:default_sprite] = context.animations[16].as(Animation)
-        context.idle_animation = context.animations[16].as(Animation)
-        context.melee_animation = context.animations[17].as(Animation)
-        context.move_animation = context.animations[18].as(Animation)
-        context.reload_animation = context.reload_animations[:rifle].as(Animation) # context.animations[19].as(Animation)
-        context.shoot_animation = context.animations[20].as(Animation)
+module EquippedItems
+  macro included
+    property equipped_items : Hash(ItemSlotType, Item) = {} of ItemSlotType => Item
+  end
+end
+
+module ItemSlot
+  macro included
+    property item_slot_type : ItemSlotType = ItemSlotType::None
+
+    def equip(equipper : EquippedItems)
+      item_slot_type
+        .each do |slot|
+          equipper.as(EquippedItems).equipped_items[slot] = self if self.is_a?(Item)
+        end
+    end
+
+    def unequip(equipper : EquippedItems)
+      item_slot_type
+        .each do |slot|
+          equipper.as(EquippedItems).equipped_items.delete(slot)
+        end
+    end
+  end
+end
+
+module Owner
+  macro included
+    property owner : Entity?
+
+    def own(new_owner : Entity, context : Game)
+      @owner = new_owner
+      self.context = context
+    end
+
+    def disown!
+      if self.is_a?(ItemSlot) && owner.is_a?(EquippedItems)
+        self.as(ItemSlot).unequip(owner.as(EquippedItems)) if owner
       end
-      weapon
+      @owner = nil
     end
   end
 end
@@ -141,7 +166,6 @@ end
 
 module Properties(*PropertyT)
   macro included
-
     {% if !@type.has_constant?(:PROPERTY_TYPES) %}
       PROPERTY_TYPES = {} of Nil => Nil
     {% end %}
@@ -182,64 +206,71 @@ module PropertyUI
       imgui.tree_node_ex({{k}}.to_s, node_flags, {{k}}.to_s)
       imgui.next_column
       val = self.{{k.id}}{{(v == Bool ? "?" : "").id}}
-      opts = { combo_selected_item: self.{{(v.stringify.includes?("Array") ? "#{k[0..-2].id}" : "id").id}} }
-      prop_input({{k}}, val, opts) do |new_val|
-        if val.is_a?(Array)
-          self.{{(v.stringify.includes?("Array") ? "#{k[0..-2].id}" : "id").id}} = new_val.as(Int32)
-        else
-          self.{{k.id}} = new_val.as({{v}})
-        end
+      prop_input({{k}}, val) do |new_val|
+        self.{{k.id}} = new_val.as({{v}}) unless new_val.nil?
       end
       imgui.next_column
     {% end %}
   end
 
-  def prop_input(prop, val : T, opts = NamedTuple.new, &block) forall T
-    if val.is_a?(Array) && val.all?(&.is_a?(Entity))
-      val = val.map { |v| v.as(Entity) }
-    end
+  def prop_input(prop, val : T, &block) forall T
     case val
     when Int32
       int_val = val.as(Int32)
-      ptr = pointerof(int_val)
-      if imgui.input_int("###{prop}_int", ptr, 1, 10)
-        yield ptr.value
+      if imgui.input_int("###{prop}_int", pointerof(int_val), 1, 10)
+        yield int_val
       end
     when Float32
       float_val = val.as(Float32)
-      ptr = pointerof(float_val)
-      if imgui.input_float("###{prop}_float", ptr, 0.1, 1.0, "%.1f")
-        yield ptr.value
+      if imgui.input_float("###{prop}_float", pointerof(float_val), 0.1, 1.0, "%.1f")
+        yield float_val
       end
     when Bool
       bool_val = val.as(Bool)
-      ptr = pointerof(bool_val)
-      if imgui.checkbox("###{prop}_bool", ptr)
-        yield ptr.value
+      if imgui.checkbox("###{prop}_bool", pointerof(bool_val))
+        yield bool_val
       end
     when SF::Vector2f
       x = val.x.as(Float32)
       y = val.y.as(Float32)
-      ptr_x = pointerof(x)
-      ptr_y = pointerof(y)
-      if imgui.input_float("x###{prop}_float", ptr_x, 0.1, 1.0, "%.1f")
-        yield SF.vector2f(ptr_x.value, y)
+      if imgui.input_float("x###{prop}_float", pointerof(x), 0.1, 1.0, "%.1f")
+        yield SF.vector2f(x, y)
       end
       imgui.next_column
       imgui.next_column
-      if imgui.input_float("y###{prop}_float", ptr_y, 0.1, 1.0, "%.1f")
-        yield SF.vector2f(x, ptr_y.value)
+      if imgui.input_float("y###{prop}_float", pointerof(y), 0.1, 1.0, "%.1f")
+        yield SF.vector2f(x, y)
       end
-    when Array(Entity)
-      current_item = opts.fetch(:combo_selected_item, 0)
-      ptr = pointerof(current_item)
-      combo_items = val.map(&.name)
-      if imgui.combo("###{prop}_entity", ptr, combo_items)
-        yield ptr.value
+    when Hash(Int32, Item)
+      if imgui.begin_menu("items")
+        Item.all_items.each do |item|
+          give_item = item.owner == self
+          if imgui.checkbox("#{item}", pointerof(give_item))
+            if give_item
+              item.own(self, context)
+              val[item.id] = item
+            else
+              val.delete(item.id)
+              item.disown!
+            end
+          end
+        end
+        imgui.end_menu
       end
-      # if imgui.list_box("###{prop}_entity", ptr, combo_items)
-      #   yield ptr.value
-      # end
+      yield val
+    when Hash(ItemSlotType, Item)
+      ItemSlotType.values.each do |slot|
+        pos = (inventory.values.index(equipped_items[slot]?) || -1) + 1
+        if imgui.combo("#{slot}", pointerof(pos), inventory.values.map(&.to_s).unshift(""))
+          item = inventory.values[pos - 1]?
+          if pos == 0 && equipped_items.has_key?(slot)
+            equipped_items[slot].as(ItemSlot).unequip(self)
+          elsif item && item.is_a?(ItemSlot)
+            item.as(ItemSlot).equip(self)
+          end
+        end
+      end
+      yield val
     end
   end
 
@@ -259,7 +290,6 @@ end
 
 class Entity < SF::Transformable
   property id : Int32 = 0
-  # property name : String
   property context : Game
 
   def initialize(**attributes)
@@ -274,8 +304,29 @@ class Entity < SF::Transformable
     {% end %}
   end
 
+  def context=(game : Game)
+    return if context == game
+    @context = game
+    game.entity_count = game.entity_count + 1
+    @id = game.entity_count
+  end
+
   def name
     "#{self.class}#{id}"
+  end
+end
+
+class Item < Entity
+  ALL_ITEMS = [] of Item
+
+  include Properties(Owner)
+
+  def self.all_items
+    return ALL_ITEMS unless ALL_ITEMS.empty?
+    {% for item in @type.all_subclasses.reject(&.abstract?) %}
+      ALL_ITEMS << {{"#{item}.new".id}}
+    {% end %}
+    ALL_ITEMS
   end
 end
 
@@ -283,8 +334,8 @@ class Bullet < Entity
   include Properties(Rotation, Position, Velocity, Acceleration)
 end
 
-abstract class Weapon < Entity
-  # property player : Player
+abstract class Weapon < Item
+  include Properties(ItemSlot)
 
   abstract def primary_attack
   abstract def melee_attack
@@ -292,63 +343,62 @@ end
 
 module Ammo
   macro included
-    property bullets_in_mag : Int32 = 6
-    property mag_capacity : Int32 = 6
-    property max_carry : Int32 = 30
+    property bullets_in_mag : Int32 = 0
+    property mag_capacity : Int32 = 0
+    property max_carry : Int32 = 0
     property bullet_velocity : SF::Vector2f = SF.vector2f(0.0, 0.0)
-    property spread : Float32 = 0.50f32
+    property spread : Float32 = 0.0f32
   end
 end
 
-class AmmoProperty
-  include Ammo
-end
-
 abstract class Gun < Weapon
-  include Properties(Ammo)
-
   abstract def primary_attack
   abstract def melee_attack
   abstract def reload
 end
 
-class Shotgun < Gun
+class Handgun < Gun
+  def item_slot_type
+    ItemSlotType::LeftHand | ItemSlotType::RightHand
+  end
+
   def primary_attack
-    (0..5).each do |b|
-      Bullet.new(**{
-        rotation: 90.0f32,
-        position: {1000.0, 500.0},
-        velocity: {0.0f32, 0.0f32},
-      })
-    end
   end
 
   def melee_attack
   end
 
   def reload
-    while bullets_in_mag < mag_capacity
-      @bullets_in_mag += 1
-    end
+  end
+end
+
+class Shotgun < Gun
+  def item_slot_type
+    ItemSlotType::LeftHand | ItemSlotType::RightHand
+  end
+
+  def primary_attack
+  end
+
+  def melee_attack
+  end
+
+  def reload
   end
 end
 
 class Rifle < Gun
+  def item_slot_type
+    ItemSlotType::LeftHand | ItemSlotType::RightHand
+  end
+
   def primary_attack
-    Bullet.new(**{
-      rotation: 90.0f32,
-      position: {1000.0, 500.0},
-      velocity: {0.0f32, 0.0f32},
-    })
   end
 
   def melee_attack
   end
 
   def reload
-    while bullets_in_mag < mag_capacity
-      @bullets_in_mag += 1
-    end
   end
 end
 
@@ -505,7 +555,7 @@ end
 
 class Player < Entity
   include Drawable
-  include Properties(Health, Rotation, Position, Velocity, Acceleration, PrimaryWeapon)
+  include Properties(Health, Rotation, Position, Velocity, Acceleration, Inventory, EquippedItems)
   include Behaviors(FaceMouse)
 end
 
@@ -674,6 +724,7 @@ class Game
   property reload_animation
   property shoot_animation
   property anim_frame : Int32 = 1
+  property entity_count : Int32 = 0
 
   def mode
     @mode ||= SF::VideoMode.new(1920, 1080)
@@ -1094,7 +1145,7 @@ class Game
 
       imgui.new_frame
       debug_menu if show_debug_menu?
-      # imgui.show_demo_window
+      imgui.show_demo_window
       imgui.end_frame
       imgui.render
 
