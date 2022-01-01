@@ -29,9 +29,130 @@ end
 annotation ImguiIgnore
 end
 
+module AnimationConverter
+  @@entity = Entity.new
+  @@sprite_sheets = {} of Int32 => SpriteSheet
+
+  def self.init(@@entity : Entity, @@sprite_sheets : Hash(Int32, SpriteSheet))
+    self
+  end
+
+  def self.from_json(pull : JSON::PullParser)
+    ({} of String => Animation).tap do |animations|
+      pull.read_array do
+        anim_id = 0
+        anim_name = "Unnamed"
+        duration = 0.5f32
+        origin = {100.0f32, 100.0f32}
+        loop = false
+        pull.read_object do |anim_key|
+          case anim_key
+          when "id"
+            anim_id = pull.read_string.to_i
+          when "attributes"
+            pull.read_object do |attr_key|
+              case attr_key
+              when "name"
+                anim_name = pull.read_string
+              when "duration"
+                duration = pull.read_float.to_f32
+              when "origin"
+                pull.read_array do
+                  origin = {pull.read_float.to_f32, pull.read_float.to_f32}
+                end
+              when "loop"
+                loop = pull.read_bool
+              end
+            end
+          when "relationships"
+            pull.read_object do |rel_key|
+              if rel_key == "sprite_sheet"
+                pull.read_object do |sheet_key|
+                  if sheet_key == "data"
+                    pull.read_object do |data_key|
+                      if data_key == "id"
+                        sheet_id = pull.read_string.to_i
+                        if @@sprite_sheets[sheet_id]?
+                          animations[anim_name] = Animation.new(
+                            anim_id,
+                            anim_name,
+                            @@entity,
+                            @@sprite_sheets[sheet_id],
+                            duration,
+                            origin,
+                            loop
+                          )
+                        else
+                          raise "Failed to find sprite sheet: #{sheet_id}"
+                        end
+                      end
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+class AnimationData
+  include JSON::Serializable
+
+  @@entity = Entity.new
+  @@sprite_sheets = {} of Int32 => SpriteSheet
+
+  @[JSON::Field(key: "data", converter: AnimationConverter.init(@@entity, @@sprite_sheets))]
+  property animations : Hash(String, Animation)
+
+  def self.init(@@entity : Entity, @@sprite_sheets : Hash(Int32, SpriteSheet))
+    self
+  end
+end
+
+module SpriteSheetConverter
+  def self.from_json(pull : JSON::PullParser)
+    ({} of Int32 => SpriteSheet).tap do |sprite_sheets|
+      pull.read_array do
+        sheet_id = 0
+        pull.read_object do |sheet_key|
+          case sheet_key
+          when "id"
+            sheet_id = pull.read_string.to_i
+          when "attributes"
+            pull.read_object do |attr_key|
+              if attr_key == "path"
+                pull.read_string.tap do |path|
+                  puts path
+                  sprite_sheets[sheet_id] = SpriteSheet.new(sheet_id, path)
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+class SpriteSheetData
+  include JSON::Serializable
+
+  @[JSON::Field(key: "data", converter: SpriteSheetConverter)]
+  property sprite_sheets : Hash(Int32, SpriteSheet)
+end
+
 module States
   macro included
     property states : EntityState = EntityState::Idle
+  end
+end
+
+module Drawables
+  macro included
+    property drawables : Hash(Symbol, SF::Drawable) = {} of Symbol => SF::Drawable
   end
 end
 
@@ -204,8 +325,13 @@ module PropertyUI
     {% for k, v in PROPERTY_TYPES %}
       imgui.align_text_to_frame_padding
       imgui.tree_node_ex({{k}}.to_s, node_flags, {{k}}.to_s)
-      imgui.next_column
       val = self.{{k.id}}{{(v == Bool ? "?" : "").id}}
+      if val.is_a?(Hash(Symbol, SF::Drawable))
+        imgui.columns(1)
+      else
+        imgui.columns(2)
+      end
+      imgui.next_column
       prop_input({{k}}, val) do |new_val|
         self.{{k.id}} = new_val.as({{v}}) unless new_val.nil?
       end
@@ -271,6 +397,18 @@ module PropertyUI
         end
       end
       yield val
+    when Hash(Symbol, SF::Drawable)
+      animations = context.animations
+      anim_keys = animations.keys
+      anim_id = Animation.selected_debug_anim
+      if imgui.combo("Drawables", pointerof(anim_id), anim_keys.unshift(""))
+        Animation.selected_debug_anim = anim_id
+      end
+      animation = animations[anim_keys[anim_id]]?
+      if animation && animation.is_a?(Animation)
+        imgui.draw_animation(animation.as(Animation))
+      end
+      yield val
     end
   end
 
@@ -293,7 +431,7 @@ class Entity < SF::Transformable
   property context : Game
 
   def initialize(**attributes)
-    super
+    super()
     {% for var in @type.instance_vars %}
       if arg = attributes[:{{var.id}}]?
         self.{{var.id}} = arg
@@ -543,11 +681,9 @@ module Drawable
   macro included
     include SF::Drawable
 
-    property drawables : Hash(Symbol, SF::Drawable) = {} of Symbol => SF::Drawable
-
     def draw(target : SF::RenderTarget, states : SF::RenderStates)
       drawables.each do |_, drawable|
-        target.draw(drawable, states) unless drawable.is_a?(Animation) && !drawable.visible?
+        target.draw(drawable, states) unless drawable.is_a?(Animation) && drawable.hidden?
       end
     end
   end
@@ -555,7 +691,7 @@ end
 
 class Player < Entity
   include Drawable
-  include Properties(Health, Rotation, Position, Velocity, Acceleration, Inventory, EquippedItems)
+  include Properties(Health, Rotation, Position, Velocity, Acceleration, Inventory, EquippedItems, Drawables)
   include Behaviors(FaceMouse)
 end
 
@@ -621,11 +757,13 @@ end
 class Animation
   include SF::Drawable
 
-  property id : Int32
-  # property sprite : SF::Sprite?
-  property entity : Entity
+  @@selected_debug_anim = 1
+
+  property id : Int32 = 0
+  property name : String = "Unnamed"
+  property entity : Entity = Entity.new
   property sprite_sheet : SpriteSheet
-  property duration : Float32
+  property duration : Float32 = 0.0f32
   property origin : (SF::Vector2f | Tuple(Float32, Float32)) = SF.vector2f(0.0, 0.0)
   property? loop : Bool = false
   property? interruptable : Bool = false
@@ -634,7 +772,7 @@ class Animation
   property? paused : Bool = false
   property? visible : Bool = false
 
-  def initialize(@id, @entity, @sprite_sheet, @duration, @origin : SF::Vector2f | Tuple(Float32, Float32), @loop)
+  def initialize(@id, @name, @entity, @sprite_sheet, @duration, @origin : SF::Vector2f | Tuple(Float32, Float32), @loop)
   end
 
   def sprite
@@ -666,11 +804,27 @@ class Animation
   end
 
   def next_frame?
-    !paused? && @t >= frame_length
+    !paused? && t >= frame_length
   end
 
   def finished?
     curr_frame >= (num_frames - 1)
+  end
+
+  def show
+    @visible = true
+  end
+
+  def hide
+    @visible = false
+  end
+
+  def hidden?
+    !visible?
+  end
+
+  def pause
+    @paused = true
   end
 
   def restart
@@ -685,11 +839,11 @@ class Animation
     @t = 0.0f32
     if finished?
       if entity.is_a?(Drawable) && !loop?
-        @visible = false
+        self.hide
         entity.as(Drawable).tap do |e|
           e.drawables[:current_sprite] = e.drawables[:default_sprite]
           e.drawables[:current_sprite].as(Animation).tap do |a|
-            a.visible = true
+            a.show
             a.curr_frame = 0
             a.sprite.rotation = sprite.rotation
             a.sprite.position = sprite.position
@@ -711,6 +865,14 @@ class Animation
 
   def draw(target : SF::RenderTarget, states : SF::RenderStates)
     target.draw(sprite, states)
+  end
+
+  def self.selected_debug_anim
+    @@selected_debug_anim
+  end
+
+  def self.selected_debug_anim=(num)
+    @@selected_debug_anim = num
   end
 end
 
@@ -748,7 +910,8 @@ class Game
   end
 
   def screen
-    @screen ||= render_states.transform
+    @screen ||= render_states
+      .transform
       .transform_rect(SF.float_rect(0, 0, 1, 1))
       .as(SF::FloatRect)
   end
@@ -886,7 +1049,7 @@ class Game
     ).tap { |p|
       @player = p
       p.drawables[:default_sprite] = idle_animation
-      p.drawables[:current_sprite] = idle_animation.tap { |a| a.visible = true }
+      p.drawables[:current_sprite] = idle_animation.tap(&.show)
     }.as(Player)
   end
 
@@ -903,186 +1066,62 @@ class Game
         when SF::Keyboard::Hyphen # osx for tilde
           @show_debug_menu = !show_debug_menu?
         when SF::Keyboard::R
-          player.drawables[:current_sprite].as(Animation).visible = false if player.drawables[:current_sprite].is_a?(Animation)
-          player.drawables[:current_sprite] = reload_animation.tap { |a| a.restart; a.visible = true }
+          player.drawables[:current_sprite].as(Animation).hide if player.drawables[:current_sprite].is_a?(Animation)
+          player.drawables[:current_sprite] = reload_animation.tap { |a| a.restart; a.show }
         when SF::Keyboard::F
-          player.drawables[:current_sprite].as(Animation).visible = false if player.drawables[:current_sprite].is_a?(Animation)
-          player.drawables[:current_sprite] = melee_animation.tap { |a| a.restart; a.visible = true }
-        when SF::Keyboard::W, SF::Keyboard::A, SF::Keyboard::S, SF::Keyboard::D
-          player.drawables[:current_sprite].as(Animation).visible = false if player.drawables[:current_sprite].is_a?(Animation)
-          player.drawables[:current_sprite] = move_animation.tap { |a| a.visible = true }
+          player.drawables[:current_sprite].as(Animation).hide if player.drawables[:current_sprite].is_a?(Animation)
+          player.drawables[:current_sprite] = melee_animation.tap { |a| a.restart; a.show }
+        when SF::Keyboard::W,
+             SF::Keyboard::A,
+             SF::Keyboard::S,
+             SF::Keyboard::D
+          player.drawables[:current_sprite].as(Animation).hide if player.drawables[:current_sprite].is_a?(Animation)
+          player.drawables[:current_sprite] = move_animation.tap { |a| a.show }
         end
       when SF::Event::MouseButtonPressed
-        player.drawables[:current_sprite].as(Animation).visible = false if player.drawables[:current_sprite].is_a?(Animation)
-        player.drawables[:current_sprite] = shoot_animation.tap { |a| a.visible = true }
+        player.drawables[:current_sprite].as(Animation).hide if player.drawables[:current_sprite].is_a?(Animation)
+        player.drawables[:current_sprite] = shoot_animation.tap { |a| a.show }
         # Shotgun.new.primary_attack
         # spawn_ball if event.button == SF::Mouse::Left && !show_debug_menu?
       end
     end
   end
 
-  module AnimationConverter
-    @@entity = Entity.new
-    @@sprite_sheets = {} of Int32 => SpriteSheet
-
-    def self.init(@@entity : Entity, @@sprite_sheets : Hash(Int32, SpriteSheet))
-      self
-    end
-
-    def self.from_json(pull : JSON::PullParser)
-      ([] of Animation).tap do |animations|
-        pull.read_array do
-          anim_id = 0
-          duration = 0.5f32
-          origin = {100.0f32, 100.0f32}
-          loop = false
-          pull.read_object do |anim_key|
-            case anim_key
-            when "id"
-              anim_id = pull.read_string.to_i
-            when "attributes"
-              pull.read_object do |attr_key|
-                case attr_key
-                when "name"
-                  name = pull.read_string
-                when "duration"
-                  duration = pull.read_float.to_f32
-                when "origin"
-                  pull.read_array do
-                    origin = {pull.read_float.to_f32, pull.read_float.to_f32}
-                  end
-                when "loop"
-                  loop = pull.read_bool
-                end
-              end
-            when "relationships"
-              pull.read_object do |rel_key|
-                if rel_key == "sprite_sheet"
-                  pull.read_object do |sheet_key|
-                    if sheet_key == "data"
-                      pull.read_object do |data_key|
-                        if data_key == "id"
-                          sheet_id = pull.read_string.to_i
-                          if @@sprite_sheets[sheet_id]?
-                            animations << Animation.new(
-                              anim_id,
-                              @@entity,
-                              @@sprite_sheets[sheet_id],
-                              duration,
-                              origin,
-                              loop
-                            )
-                          else
-                            raise "Failed to find sprite sheet: #{sheet_id}"
-                          end
-                        end
-                      end
-                    end
-                  end
-                end
-              end
-            end
-          end
-        end
-      end
-    end
-  end
-
-  class AnimationData
-    include JSON::Serializable
-
-    @@entity = Entity.new
-    @@sprite_sheets = {} of Int32 => SpriteSheet
-
-    @[JSON::Field(key: "data", converter: Game::AnimationConverter.init(@@entity, @@sprite_sheets))]
-    property animations : Array(Animation)
-
-    def self.init(@@entity : Entity, @@sprite_sheets : Hash(Int32, SpriteSheet))
-      self
-    end
-  end
-
-  module SpriteSheetConverter
-    def self.from_json(pull : JSON::PullParser)
-      ({} of Int32 => SpriteSheet).tap do |sprite_sheets|
-        pull.read_array do
-          sheet_id = 0
-          pull.read_object do |sheet_key|
-            case sheet_key
-            when "id"
-              sheet_id = pull.read_string.to_i
-            when "attributes"
-              pull.read_object do |attr_key|
-                if attr_key == "path"
-                  pull.read_string.tap do |path|
-                    puts path
-                    sprite_sheets[sheet_id] = SpriteSheet.new(sheet_id, path)
-                  end
-                end
-              end
-            end
-          end
-        end
-      end
-    end
-  end
-
-  class SpriteSheetData
-    include JSON::Serializable
-
-    @[JSON::Field(key: "data", converter: Game::SpriteSheetConverter)]
-    property sprite_sheets : Hash(Int32, SpriteSheet)
-  end
-
   def animations
-    @animations ||= AnimationData.init(player, sprite_sheets)
+    @animations ||= AnimationData
+      .init(player, sprite_sheets)
       .from_json(File.read("data/animations/player.json"))
       .animations
       .tap { |a| puts "loading animations..." }
-      .as(Array(Animation))
+      .as(Hash(String, Animation))
   end
 
   def sprite_sheets
-    @sprite_sheets ||= SpriteSheetData.from_json(File.read("data/sprite_sheets/player.json"))
+    @sprite_sheets ||= SpriteSheetData
+      .from_json(File.read("data/sprite_sheets/player.json"))
       .sprite_sheets
       .tap { |s| puts "loading sprite_sheets..." }
       .as(Hash(Int32, SpriteSheet))
   end
 
   def idle_animation
-    @idle_animation ||= animations[8].as(Animation)
+    @idle_animation ||= animations["player_shotgun_idle"].as(Animation)
   end
 
   def melee_animation
-    @melee_animation ||= animations[9].as(Animation)
+    @melee_animation ||= animations["player_shotgun_melee"].as(Animation)
   end
 
   def move_animation
-    @move_animation ||= animations[10].as(Animation)
-  end
-
-  def reload_animations
-    @reload_animations ||= {
-      pistol:  animations[11].as(Animation),
-      shotgun: animations[24].as(Animation),
-      rifle:   animations[19].as(Animation),
-    }
+    @move_animation ||= animations["player_shotgun_move"].as(Animation)
   end
 
   def reload_animation
-    @reload_animation ||= reload_animations[:pistol].as(Animation) # animations[11].as(Animation)
+    @reload_animation ||= animations["player_shotgun_reload"].as(Animation)
   end
 
   def shoot_animation
-    @shoot_animation ||= animations[12].as(Animation)
-  end
-
-  def imgui_texture0
-    @imgui_texture0 ||= SF::Texture.from_file("/Users/ruro/src/git/orb/assets/textures/player/shotgun/idle/survivor-idle_shotgun_0.png")
-  end
-
-  def imgui_texture1
-    @imgui_texture1 ||= SF::Texture.from_file("/Users/ruro/src/git/orb/assets/textures/player/shotgun/melee/survivor-melee_shotgun_8.png")
+    @shoot_animation ||= animations["player_shotgun_shoot"].as(Animation)
   end
 
   def debug_menu
@@ -1094,10 +1133,6 @@ class Game
     imgui.push_style_var(LibImGui::ImGuiStyleVar::FramePadding, ImVec2.new(2, 2))
     imgui.align_text_to_frame_padding
     player.property_tree
-    # imgui.draw_line(SF.vector2f(0.0, 0.0), SF.vector2f(50.0, 0.0), SF::Color::White, 5)
-    # imgui.draw_texture(imgui_texture0)
-    # imgui.draw_texture(imgui_texture1)
-    imgui.draw_animation(reload_animation)
     imgui.pop_style_var
     imgui.end
   end
